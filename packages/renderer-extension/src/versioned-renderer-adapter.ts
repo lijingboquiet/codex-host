@@ -415,21 +415,29 @@ export function isClaudeTransportModelId(value: unknown): value is string {
 export function deepSeekHarnessTransportModelId(
   model?: HarnessModelRef,
   permissionModeId?: HarnessPermissionModeId,
+  thinkingOptionId?: HarnessThinkingOptionId,
 ): string {
   if (!model) {
-    if (permissionModeId) {
-      throw new Error("DeepSeek Harness transport Permission Mode requires a Model Ref");
+    if (permissionModeId || thinkingOptionId) {
+      throw new Error("DeepSeek Harness transport configuration requires a Model Ref");
     }
     return DEEPSEEK_HARNESS_TRANSPORT_MODEL_ID;
   }
   const parsedPermissionModeId = permissionModeId
     ? harnessPermissionModeIdSchema.parse(permissionModeId)
     : undefined;
+  const parsedThinkingOptionId = thinkingOptionId
+    ? harnessThinkingOptionIdSchema.parse(thinkingOptionId)
+    : undefined;
+  if (parsedThinkingOptionId) {
+    return `${DEEPSEEK_HARNESS_TRANSPORT_MODEL_PREFIX}${harnessModelRefSchema.parse(model).id}@${parsedPermissionModeId ?? ""}@${parsedThinkingOptionId}`;
+  }
   return `${DEEPSEEK_HARNESS_TRANSPORT_MODEL_PREFIX}${harnessModelRefSchema.parse(model).id}${parsedPermissionModeId ? `@${parsedPermissionModeId}` : ""}`;
 }
 
 export function decodeDeepSeekHarnessTransportModelId(value: unknown): {
   model?: HarnessModelRef;
+  thinkingOptionId?: HarnessThinkingOptionId;
   permissionModeId?: HarnessPermissionModeId;
 } | null {
   if (value === DEEPSEEK_HARNESS_TRANSPORT_MODEL_ID) return {};
@@ -437,18 +445,24 @@ export function decodeDeepSeekHarnessTransportModelId(value: unknown): {
     return null;
   }
   const components = value.slice(DEEPSEEK_HARNESS_TRANSPORT_MODEL_PREFIX.length).split("@");
-  if (components.length < 1 || components.length > 2) return null;
-  const [modelId, permissionModeId] = components;
+  if (components.length < 1 || components.length > 3) return null;
+  const [modelId, permissionModeId, thinkingOptionId] = components;
   if (components.length === 2 && !permissionModeId) return null;
+  if (components.length === 3 && !thinkingOptionId) return null;
   const model = harnessModelRefSchema.safeParse({ id: modelId });
   if (!model.success) return null;
   const permissionMode = permissionModeId
     ? harnessPermissionModeIdSchema.safeParse(permissionModeId)
     : null;
   if (permissionMode && !permissionMode.success) return null;
+  const thinking = thinkingOptionId
+    ? harnessThinkingOptionIdSchema.safeParse(thinkingOptionId)
+    : null;
+  if (thinking && !thinking.success) return null;
   return {
     model: model.data,
     ...(permissionMode?.success ? { permissionModeId: permissionMode.data } : {}),
+    ...(thinking?.success ? { thinkingOptionId: thinking.data } : {}),
   };
 }
 
@@ -960,7 +974,7 @@ export function modelSelectionForAgent(
       : agent === "claude-code"
         ? claudeTransportModelId(model, permissionModeId, thinkingOptionId)
         : agent === "deepseek-harness"
-          ? deepSeekHarnessTransportModelId(model, permissionModeId)
+          ? deepSeekHarnessTransportModelId(model, permissionModeId, thinkingOptionId)
           : agent === "opencode"
             ? openCodeTransportModelId(model, permissionModeId, thinkingOptionId)
             : agent === "grok"

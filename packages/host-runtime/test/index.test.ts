@@ -35,6 +35,39 @@ describe("host-runtime package", () => {
       selectedHarness: "pi",
       selectionSource: "default-agent",
     });
+    expect(
+      classifyCreateRequestRoute(
+        {
+          id: 43,
+          method: "thread/start",
+          params: { threadSource: "code_review", model: null },
+        },
+        "pi",
+      ),
+    ).toEqual({
+      requestMethod: "thread/start",
+      modelCarrier: "official-model",
+      selectedHarness: "codex",
+      selectionSource: "official-model",
+    });
+    expect(
+      classifyCreateRequestRoute(
+        {
+          id: 44,
+          method: "thread/start",
+          params: {
+            threadSource: "code_review",
+            model: { model: "gpt-5.3-codex", reasoningEffort: "high" },
+          },
+        },
+        "pi",
+      ),
+    ).toEqual({
+      requestMethod: "thread/start",
+      modelCarrier: "official-model",
+      selectedHarness: "codex",
+      selectionSource: "official-model",
+    });
     expect(classifyCreateRequestRoute(request("codexhost/pi-native"), "codex")).toEqual({
       requestMethod: "thread/start",
       modelCarrier: "pi-transport",
@@ -68,7 +101,7 @@ describe("host-runtime package", () => {
       selectionSource: "transport-model",
     });
     expect(
-      classifyCreateRequestRoute({ id: 43, method: "thread/read", params: {} }, "codex"),
+      classifyCreateRequestRoute({ id: 45, method: "thread/read", params: {} }, "codex"),
     ).toBeNull();
   });
 });

@@ -425,11 +425,14 @@ export function restoredThreadOwnership(inspection: ThreadInspection): RestoredT
       throw new Error("DeepSeek Harness Thread reported an incompatible transport Model");
     }
     const model = inspection.effectiveModel ?? transportSelection.model;
+    const thinkingOptionId =
+      selectableThinkingOptionId(inspection) ?? transportSelection.thinkingOptionId;
     const permissionModeId =
       inspection.effectivePermissionModeId ?? transportSelection.permissionModeId;
     return {
       agent: "deepseek-harness",
       ...(model ? { model } : {}),
+      ...(thinkingOptionId ? { thinkingOptionId } : {}),
       ...(permissionModeId ? { permissionModeId } : {}),
     };
   }
@@ -1922,6 +1925,7 @@ export function installRendererBindingProbe(
   const switchComposerAgent = async (
     mounted: MountedComposer,
     agent: RendererAgent,
+    preferForNewThreads = true,
   ): Promise<boolean> => {
     if (agent !== "codex" && activeHarnessAvailabilityState().availability[agent] !== "ready") {
       return false;
@@ -1948,10 +1952,17 @@ export function installRendererBindingProbe(
         );
       },
       clearPrewarm: clearDraftPrewarm,
+      preferForNewThreads,
     });
     renderMounted(mounted);
     try {
       const switched = await switching;
+      if (switched && preferForNewThreads) {
+        // Detached native flows such as Code Review replace the Composer before
+        // the normal submission hooks run. Persist the confirmed selection at
+        // switch time so that replacement cannot restore a stale Harness.
+        writeNewThreadAgentPreference(controller.preferredNewThreadAgent());
+      }
       if (switched && controller.get(mounted.composer).agent !== "codex") {
         void loadExternalCatalog(mounted);
       } else if (controller.get(mounted.composer).agent === "codex") {
@@ -2120,7 +2131,7 @@ export function installRendererBindingProbe(
               composerState.agent === agent &&
               status !== "ready"
             ) {
-              await switchComposerAgent(mounted, "codex");
+              await switchComposerAgent(mounted, "codex", false);
             }
           }
           for (const mounted of mountedByComposer.values()) {

@@ -414,12 +414,30 @@ export function classifyCreateRequestRoute(
       selectionSource: "transport-model",
     };
   }
+  const detachedReview = isRecord(request.params) && request.params.threadSource === "code_review";
   return {
     requestMethod: "thread/start",
     modelCarrier: "official-model",
-    selectedHarness: defaultAgent,
-    selectionSource: defaultAgent === "pi" ? "default-agent" : "official-model",
+    selectedHarness: detachedReview ? "codex" : defaultAgent,
+    selectionSource: !detachedReview && defaultAgent === "pi" ? "default-agent" : "official-model",
   };
+}
+
+function normalizedOfficialCreateRequest(request: JsonRpcRequest): JsonRpcRequest {
+  if (request.method !== "thread/start" || !isRecord(request.params)) return request;
+  const rawModel = request.params.model;
+  if (typeof rawModel === "string") return request;
+  const model =
+    isRecord(rawModel) && typeof rawModel.model === "string" ? rawModel.model : undefined;
+  const params = { ...request.params };
+  delete params.model;
+  return jsonRpcRequestSchema.parse({
+    ...request,
+    params: {
+      ...params,
+      ...(model === undefined ? {} : { model }),
+    },
+  });
 }
 
 function requestObject(request: JsonRpcRequest): JsonObject {
@@ -1419,7 +1437,11 @@ export class AppServerHost {
         return;
       }
     }
-    await this.#forwardOfficialRequest(request, frame);
+    const officialRequest = normalizedOfficialCreateRequest(request);
+    await this.#forwardOfficialRequest(
+      officialRequest,
+      officialRequest === request ? frame : Buffer.from(`${JSON.stringify(officialRequest)}\n`),
+    );
   }
 
   async #forwardOfficialNonRequest(
@@ -2856,7 +2878,7 @@ export class AppServerHost {
     const requestedPermissionModeId =
       route && route.harnessId !== "codex" ? route.permissionModeId : undefined;
     const transportModelId =
-      route && route.harnessId === harnessId
+      route && route.harnessId === harnessId && route.transportModelId
         ? route.transportModelId
         : transportModelIdForHarness(harnessId);
     const cwd = params.cwd;

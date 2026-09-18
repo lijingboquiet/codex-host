@@ -643,6 +643,45 @@ describe("AppServerHost official forwarding", () => {
       await stopFixture(fixture);
     }
   });
+
+  it.each([
+    {
+      inputModel: null,
+      expectedParams: { threadSource: "code_review", cwd: "/synthetic" },
+    },
+    {
+      inputModel: { model: "gpt-5.3-codex", reasoningEffort: "high" },
+      expectedParams: {
+        threadSource: "code_review",
+        cwd: "/synthetic",
+        model: "gpt-5.3-codex",
+      },
+    },
+  ])(
+    "normalizes the detached Review Model contract before official forwarding",
+    async ({ inputModel, expectedParams }) => {
+      const fixture = createFixture();
+      try {
+        await fixture.ready;
+        writeRequest(fixture.desktopInput, {
+          id: 2,
+          method: "thread/start",
+          params: {
+            threadSource: "code_review",
+            cwd: "/synthetic",
+            model: inputModel,
+          },
+        });
+        expect(await readJsonLine(fixture.official.stdin)).toEqual({
+          id: 2,
+          method: "thread/start",
+          params: expectedParams,
+        });
+      } finally {
+        await stopFixture(fixture);
+      }
+    },
+  );
 });
 
 describe("AppServerHost installed Harness plugins", () => {

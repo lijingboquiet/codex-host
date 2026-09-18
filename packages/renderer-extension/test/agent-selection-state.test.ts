@@ -68,7 +68,7 @@ describe("Renderer draft Agent controller", () => {
     });
   });
 
-  it("uses only the most recently submitted Agent for new default Composers", async () => {
+  it("uses the most recently selected Agent for replacement default Composers", async () => {
     const submittedPi = {};
     const unsubmittedDraft = {};
     const openedCodex = {};
@@ -102,7 +102,7 @@ describe("Renderer draft Agent controller", () => {
     agents.mount(afterPassiveWork, ["default"]);
     expect(agents.get(afterPassiveWork)).toEqual({
       composerId: "composer-4",
-      agent: "pi",
+      agent: "codex",
       phase: "draft",
     });
     expect(agents.get(afterPassiveWork).piModel).toBeUndefined();
@@ -174,6 +174,43 @@ describe("Renderer draft Agent controller", () => {
     });
     expect(agents.modelForAgent(composer, "opencode")).toEqual(model);
     expect(agents.thinkingOptionForAgent(composer, "opencode")).toBe(thinkingOptionId);
+  });
+
+  it("keeps DeepSeek Harness Thinking through draft creation and Thread restore", async () => {
+    const draft = {};
+    const restored = {};
+    const agents = controller();
+    const model = harnessModelRefSchema.parse({
+      id: "deepseek-harness-model-v1.Zmxhc2g",
+    });
+    const max = harnessThinkingOptionIdSchema.parse("max");
+    const low = harnessThinkingOptionIdSchema.parse("low");
+
+    await agents.switchAgent(draft, "deepseek-harness", {
+      applyAgent: () => true,
+      clearPrewarm: async () => undefined,
+    });
+    agents.setExternalModel(draft, "deepseek-harness", model);
+    agents.setExternalThinkingOption(draft, "deepseek-harness", max);
+
+    expect(agents.get(draft)).toMatchObject({
+      agent: "deepseek-harness",
+      deepSeekHarnessModel: model,
+      deepSeekHarnessThinkingOptionId: max,
+    });
+    expect(agents.thinkingOptionForAgent(draft, "deepseek-harness")).toBe(max);
+
+    agents.mount(restored, ["conversation", "deepseek-thread"]);
+    agents.restore(restored, "deepseek-harness", model, low);
+    expect(agents.get(restored)).toMatchObject({
+      agent: "deepseek-harness",
+      deepSeekHarnessModel: model,
+      deepSeekHarnessThinkingOptionId: low,
+    });
+    expect(agents.thinkingOptionForAgent(restored, "deepseek-harness")).toBe(low);
+
+    agents.setExternalThinkingOption(restored, "deepseek-harness");
+    expect(agents.thinkingOptionForAgent(restored, "deepseek-harness")).toBeUndefined();
   });
 
   it("uses the same draft lifecycle for explicitly enabled Claude Code", async () => {
@@ -568,6 +605,56 @@ describe("Renderer draft Agent controller", () => {
     releaseClear?.();
     await first;
     expect(agents.isSwitching(composer)).toBe(false);
+  });
+
+  it("keeps the latest successful cross-Composer selection as the new Thread preference", async () => {
+    const firstComposer = {};
+    const secondComposer = {};
+    const nextComposer = {};
+    const agents = controller();
+    let releaseFirst: (() => void) | undefined;
+    const first = agents.switchAgent(firstComposer, "pi", {
+      applyAgent: () => true,
+      clearPrewarm: () =>
+        new Promise<void>((resolve) => {
+          releaseFirst = resolve;
+        }),
+    });
+    await expect(
+      agents.switchAgent(secondComposer, "claude-code", {
+        applyAgent: () => true,
+        clearPrewarm: async () => undefined,
+      }),
+    ).resolves.toBe(true);
+    releaseFirst?.();
+    await expect(first).resolves.toBe(true);
+
+    agents.mount(nextComposer, ["default"]);
+    expect(agents.get(nextComposer).agent).toBe("claude-code");
+    expect(agents.preferredNewThreadAgent()).toBe("claude-code");
+  });
+
+  it("does not persist an automatic availability fallback as the new Thread preference", async () => {
+    const selectedComposer = {};
+    const fallbackComposer = {};
+    const nextComposer = {};
+    const agents = controller();
+    const operations = {
+      applyAgent: () => true,
+      clearPrewarm: async () => undefined,
+    };
+
+    await agents.switchAgent(selectedComposer, "pi", operations);
+    await agents.switchAgent(fallbackComposer, "pi", operations);
+    await agents.switchAgent(fallbackComposer, "codex", {
+      ...operations,
+      preferForNewThreads: false,
+    });
+
+    agents.mount(nextComposer, ["default"]);
+    expect(agents.get(fallbackComposer).agent).toBe("codex");
+    expect(agents.get(nextComposer).agent).toBe("pi");
+    expect(agents.preferredNewThreadAgent()).toBe("pi");
   });
 
   it("restores the prior Agent when prewarm clearing fails", async () => {

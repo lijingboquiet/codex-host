@@ -100,6 +100,29 @@ describe("external Harness transport model routing", () => {
     expect(decodeCreateRoute({ id: 4, method: "model/list", params: {} })).toBeNull();
   });
 
+  it("accepts the detached Review Model contract without weakening ordinary starts", () => {
+    expect(
+      decodeCreateRoute({
+        id: 4,
+        method: "thread/start",
+        params: { threadSource: "code_review", model: null },
+      }),
+    ).toEqual({ harnessId: "codex" });
+    expect(
+      decodeCreateRoute({
+        id: 5,
+        method: "thread/start",
+        params: {
+          threadSource: "code_review",
+          model: { model: "gpt-5.3-codex", reasoningEffort: "high" },
+        },
+      }),
+    ).toEqual({ harnessId: "codex", transportModelId: "gpt-5.3-codex" });
+    expect(() =>
+      decodeCreateRoute({ id: 6, method: "thread/start", params: { model: null } }),
+    ).toThrow("thread/start params.model must be text");
+  });
+
   it("round-trips a bounded opaque selected Pi Model Ref", () => {
     const model = harnessModelRefSchema.parse({ id: "pi-model-v1.cHJvdmlkZXItaWQ" });
     const transportModelId = encodePiTransportModel(model);
@@ -296,20 +319,38 @@ describe("external Harness transport model routing", () => {
     ).toMatchObject({ harnessId: "claude-code", model, permissionModeId, thinkingOptionId });
   });
 
-  it("round-trips request-scoped DeepSeek Harness Model and Permission Mode", () => {
+  it("round-trips request-scoped DeepSeek Harness Model, Permission Mode, and Thinking", () => {
     const model = harnessModelRefSchema.parse({ id: "deepseek-harness-model-v1.Zmxhc2g" });
     const permissionModeId = harnessPermissionModeIdSchema.parse("team-safe");
-    const transportModelId = encodeDeepSeekHarnessTransportModel(model, permissionModeId);
+    const thinkingOptionId = harnessThinkingOptionIdSchema.parse("max");
+    const transportModelId = encodeDeepSeekHarnessTransportModel(
+      model,
+      permissionModeId,
+      thinkingOptionId,
+    );
+    const withoutPermission = encodeDeepSeekHarnessTransportModel(
+      model,
+      undefined,
+      thinkingOptionId,
+    );
     const legacyTransportModelId = encodeDeepSeekHarnessTransportModel(model);
 
     expect(transportModelId).toBe(
-      `${DEEPSEEK_HARNESS_NATIVE_TRANSPORT_MODEL_ID}@${model.id}@${permissionModeId}`,
+      `${DEEPSEEK_HARNESS_NATIVE_TRANSPORT_MODEL_ID}@${model.id}@${permissionModeId}@${thinkingOptionId}`,
     );
     expect(decodeDeepSeekHarnessTransportSelection(transportModelId)).toEqual({
       model,
       permissionModeId,
+      thinkingOptionId,
     });
     expect(decodeDeepSeekHarnessTransportSelection(legacyTransportModelId)).toEqual({ model });
+    expect(withoutPermission).toBe(
+      `${DEEPSEEK_HARNESS_NATIVE_TRANSPORT_MODEL_ID}@${model.id}@@${thinkingOptionId}`,
+    );
+    expect(decodeDeepSeekHarnessTransportSelection(withoutPermission)).toEqual({
+      model,
+      thinkingOptionId,
+    });
     expect(
       decodeCreateRoute({ id: 10, method: "thread/start", params: { model: transportModelId } }),
     ).toEqual({
@@ -318,10 +359,14 @@ describe("external Harness transport model routing", () => {
       transportModelId,
       model,
       permissionModeId,
+      thinkingOptionId,
     });
     expect(() => encodeDeepSeekHarnessTransportModel(undefined, permissionModeId)).toThrow(
       "requires a Model Ref",
     );
+    expect(() =>
+      encodeDeepSeekHarnessTransportModel(undefined, undefined, thinkingOptionId),
+    ).toThrow("requires a Model Ref");
     expect(() => decodeDeepSeekHarnessTransportSelection(`${legacyTransportModelId}@`)).toThrow(
       "empty Permission Mode",
     );

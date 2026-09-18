@@ -518,12 +518,34 @@ export function installDraftPrewarmPolicyBridge(
     );
   };
   const routeThreadStart = (parameters: unknown): unknown => {
-    if (!isRecord(parameters) || parameters.ephemeral === true) {
+    if (
+      !isRecord(parameters) ||
+      (parameters.ephemeral === true && parameters.threadSource !== "code_review")
+    ) {
       return parameters;
     }
+    if (parameters.threadSource !== "code_review") {
+      return selectedModel === null ? parameters : { ...parameters, model: selectedModel };
+    }
+
+    // Desktop's detached Review flow can send a structured Model selection,
+    // or `null` when Codex should use its configured default. Neither value is
+    // valid for app-server's text-only `thread/start.model`. The currently
+    // selected Agent is authoritative: stale external carriers captured by a
+    // prewarmed Review must not survive after the user switches back to Codex.
+    const requestedModel =
+      typeof parameters.model === "string"
+        ? parameters.model
+        : isRecord(parameters.model) && typeof parameters.model.model === "string"
+          ? parameters.model.model
+          : null;
+    const routedModel =
+      selectedModel ?? (requestedModel?.startsWith("codexhost/") === true ? null : requestedModel);
+    const parametersWithoutModel = { ...parameters };
+    delete parametersWithoutModel.model;
     return {
-      ...parameters,
-      ...(selectedModel === null ? {} : { model: selectedModel }),
+      ...parametersWithoutModel,
+      ...(routedModel === null ? {} : { model: routedModel }),
     };
   };
   const routedSend = (method: string, parameters: unknown, options?: unknown): unknown => {

@@ -1,16 +1,25 @@
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::path::Path;
 
-const PATH_OVERRIDES: [&str; 5] = [
+const PATH_OVERRIDES: [&str; 6] = [
     "HOME",
     "USERPROFILE",
     "ZDOTDIR",
     "CODEX_HOME",
     "CODEX_ELECTRON_USER_DATA_PATH",
+    "CODEXHOST_CLAUDE_COMMAND",
 ];
 
+fn environment_name_matches(actual: &OsStr, expected: &str) -> bool {
+    if cfg!(windows) {
+        actual.to_string_lossy().eq_ignore_ascii_case(expected)
+    } else {
+        actual == expected
+    }
+}
+
 /// LaunchServices/AppX do not inherit the launcher's environment. Forward only
-/// explicit directory overrides, never arbitrary variables or authentication
+/// explicit absolute path overrides, never arbitrary variables or authentication
 /// material: macOS passes these entries through `open --env` arguments.
 pub(crate) fn forwarded(
     variables: impl IntoIterator<Item = (OsString, OsString)>,
@@ -18,15 +27,21 @@ pub(crate) fn forwarded(
     let variables = variables.into_iter().collect::<Vec<_>>();
     if variables
         .iter()
-        .any(|(name, value)| name == "CODEXHOST_REMOTE_SSH_MANAGED" && value == "1")
+        .any(|(name, value)| {
+            environment_name_matches(name, "CODEXHOST_REMOTE_SSH_MANAGED") && value == "1"
+        })
     {
         return Vec::new();
     }
     variables
         .into_iter()
-        .filter(|(name, value)| {
-            PATH_OVERRIDES.iter().any(|expected| name == *expected)
-                && Path::new(value).is_absolute()
+        .filter_map(|(name, value)| {
+            let normalized_name = PATH_OVERRIDES.iter().find(|expected| {
+                environment_name_matches(name, expected)
+            })?;
+            Path::new(&value)
+                .is_absolute()
+                .then(|| (OsString::from(*normalized_name), value))
         })
         .collect()
 }
@@ -40,7 +55,8 @@ pub(crate) fn launch_arguments(
 ) -> Vec<OsString> {
     let mut arguments = base.to_vec();
     if let Some((_, directory)) = environment.iter().find(|(name, directory)| {
-        name == "CODEX_ELECTRON_USER_DATA_PATH" && Path::new(directory).is_absolute()
+        environment_name_matches(name, "CODEX_ELECTRON_USER_DATA_PATH")
+            && Path::new(directory).is_absolute()
     }) {
         let mut argument = OsString::from("--user-data-dir=");
         argument.push(directory);
@@ -77,6 +93,45 @@ mod tests {
             ]),
             [expected],
         );
+    }
+
+    #[test]
+    fn forwards_an_explicit_absolute_claude_command() {
+        let command = std::env::temp_dir()
+            .join("synthetic claude")
+            .into_os_string();
+        let expected = (
+            OsString::from("CODEXHOST_CLAUDE_COMMAND"),
+            command.clone(),
+        );
+        assert_eq!(
+            forwarded([
+                expected.clone(),
+                (
+                    OsString::from("CODEXHOST_CLAUDE_COMMAND"),
+                    OsString::from("relative/claude")
+                ),
+            ]),
+            [expected],
+        );
+    }
+
+    #[test]
+    fn matches_override_names_with_platform_environment_semantics() {
+        let command = std::env::temp_dir().join("claude").into_os_string();
+        let forwarded = forwarded([(
+            OsString::from("codexhost_claude_command"),
+            command.clone(),
+        )]);
+
+        if cfg!(windows) {
+            assert_eq!(
+                forwarded,
+                [(OsString::from("CODEXHOST_CLAUDE_COMMAND"), command)]
+            );
+        } else {
+            assert!(forwarded.is_empty());
+        }
     }
 
     #[test]

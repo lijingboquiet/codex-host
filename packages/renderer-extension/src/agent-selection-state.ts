@@ -36,6 +36,7 @@ export interface DraftComposerState {
   claudeModel?: HarnessModelRef;
   claudeThinkingOptionId?: HarnessThinkingOptionId;
   deepSeekHarnessModel?: HarnessModelRef;
+  deepSeekHarnessThinkingOptionId?: HarnessThinkingOptionId;
   openCodeModel?: HarnessModelRef;
   openCodeThinkingOptionId?: HarnessThinkingOptionId;
   grokModel?: HarnessModelRef;
@@ -73,6 +74,7 @@ export interface DraftAgentControllerOptions {
 export interface DraftAgentSwitchOperations {
   applyAgent(agent: RendererAgent): boolean;
   clearPrewarm(): Promise<void>;
+  preferForNewThreads?: boolean;
 }
 
 function defaultIdFactory(sequence: number): string {
@@ -104,7 +106,9 @@ export class DraftAgentController<Composer extends object> {
   #composerSequence = 0;
   #modelRequestSequence = 0;
   #ownershipRequestSequence = 0;
-  #lastSubmittedAgent: RendererAgent;
+  #preferenceSequence = 0;
+  #committedPreferenceSequence = 0;
+  #preferredNewThreadAgent: RendererAgent;
 
   constructor(options: DraftAgentControllerOptions = {}) {
     this.#idFactory = options.idFactory ?? defaultIdFactory;
@@ -116,7 +120,7 @@ export class DraftAgentController<Composer extends object> {
     if (!this.#enabledAgents.has(this.#defaultAgent)) {
       throw new Error("Renderer default Agent must be enabled");
     }
-    this.#lastSubmittedAgent = this.#defaultAgent;
+    this.#preferredNewThreadAgent = this.#defaultAgent;
   }
 
   get(composer: Composer): Readonly<DraftComposerState> {
@@ -136,7 +140,7 @@ export class DraftAgentController<Composer extends object> {
     const preferredAgent =
       preferredNewThreadAgent && this.#enabledAgents.has(preferredNewThreadAgent)
         ? preferredNewThreadAgent
-        : this.#lastSubmittedAgent;
+        : this.#preferredNewThreadAgent;
     const state = this.#state(composer, isDefaultTarget(target) ? preferredAgent : "codex");
     if (isConversationTarget(target)) {
       this.#conversationStates.push({ target, state });
@@ -242,6 +246,9 @@ export class DraftAgentController<Composer extends object> {
     if (agent === "claude-code" && thinkingOptionId) {
       state.claudeThinkingOptionId = thinkingOptionId;
     } else if (agent === "claude-code") delete state.claudeThinkingOptionId;
+    if (agent === "deepseek-harness" && thinkingOptionId) {
+      state.deepSeekHarnessThinkingOptionId = thinkingOptionId;
+    } else if (agent === "deepseek-harness") delete state.deepSeekHarnessThinkingOptionId;
     if (agent === "grok" && thinkingOptionId) state.grokThinkingOptionId = thinkingOptionId;
     else if (agent === "grok") delete state.grokThinkingOptionId;
     if (agent === "opencode" && thinkingOptionId) {
@@ -319,6 +326,7 @@ export class DraftAgentController<Composer extends object> {
     const state = this.#state(composer);
     if (agent === "pi") return state.piThinkingOptionId;
     if (agent === "claude-code") return state.claudeThinkingOptionId;
+    if (agent === "deepseek-harness") return state.deepSeekHarnessThinkingOptionId;
     if (agent === "grok") return state.grokThinkingOptionId;
     if (agent === "opencode") return state.openCodeThinkingOptionId;
     if (agent === "omp") return state.ompThinkingOptionId;
@@ -401,6 +409,10 @@ export class DraftAgentController<Composer extends object> {
       state.claudeThinkingOptionId = thinkingOptionId;
     } else if (agent === "claude-code") {
       delete state.claudeThinkingOptionId;
+    } else if (agent === "deepseek-harness" && thinkingOptionId) {
+      state.deepSeekHarnessThinkingOptionId = thinkingOptionId;
+    } else if (agent === "deepseek-harness") {
+      delete state.deepSeekHarnessThinkingOptionId;
     } else if (agent === "grok" && thinkingOptionId) {
       state.grokThinkingOptionId = thinkingOptionId;
     } else if (agent === "grok") {
@@ -468,8 +480,12 @@ export class DraftAgentController<Composer extends object> {
 
   recordSubmission(composer: Composer): Readonly<DraftComposerState> {
     const state = this.#state(composer);
-    this.#lastSubmittedAgent = state.agent;
+    this.#commitPreferredNewThreadAgent(state.agent, ++this.#preferenceSequence);
     return state;
+  }
+
+  preferredNewThreadAgent(): RendererAgent {
+    return this.#preferredNewThreadAgent;
   }
 
   transfer(
@@ -502,7 +518,14 @@ export class DraftAgentController<Composer extends object> {
     const state = this.#state(composer);
     if (!this.#enabledAgents.has(nextAgent)) return false;
     if (state.phase !== "draft" || this.#switching.has(state)) return false;
-    if (state.agent === nextAgent) return true;
+    const preferenceSequence =
+      operations.preferForNewThreads === false ? null : ++this.#preferenceSequence;
+    if (state.agent === nextAgent) {
+      if (preferenceSequence !== null) {
+        this.#commitPreferredNewThreadAgent(nextAgent, preferenceSequence);
+      }
+      return true;
+    }
 
     this.#pendingSubmissions.delete(state);
 
@@ -520,6 +543,9 @@ export class DraftAgentController<Composer extends object> {
         return false;
       }
       state.agent = nextAgent;
+      if (preferenceSequence !== null) {
+        this.#commitPreferredNewThreadAgent(nextAgent, preferenceSequence);
+      }
       return true;
     } finally {
       this.#switching.delete(state);
@@ -532,6 +558,12 @@ export class DraftAgentController<Composer extends object> {
       this.#conversationStates.find((candidate) => sameTarget(candidate.target, target))?.state ??
       null
     );
+  }
+
+  #commitPreferredNewThreadAgent(agent: RendererAgent, sequence: number): void {
+    if (sequence < this.#committedPreferenceSequence) return;
+    this.#preferredNewThreadAgent = agent;
+    this.#committedPreferenceSequence = sequence;
   }
 
   #state(composer: Composer, initialAgent?: RendererAgent): MutableComposerState {

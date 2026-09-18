@@ -789,21 +789,34 @@ describe("current Codex Renderer Agent adapter", () => {
     ).toBe(carrier);
   });
 
-  it("encodes DeepSeek Harness Model and Permission Mode in the transport carrier", () => {
+  it("encodes DeepSeek Harness Model, Permission Mode, and Thinking in the transport carrier", () => {
     const model = harnessModelRefSchema.parse({ id: "deepseek-harness-model-v1.Zmxhc2g" });
     const permissionModeId = harnessPermissionModeIdSchema.parse("team-safe");
-    const carrier = deepSeekHarnessTransportModelId(model, permissionModeId);
+    const thinkingOptionId = harnessThinkingOptionIdSchema.parse("max");
+    const carrier = deepSeekHarnessTransportModelId(model, permissionModeId, thinkingOptionId);
 
     expect(decodeDeepSeekHarnessTransportModelId(carrier)).toEqual({
       model,
       permissionModeId,
+      thinkingOptionId,
     });
     expect(decodeDeepSeekHarnessTransportModelId(deepSeekHarnessTransportModelId(model))).toEqual({
       model,
     });
     expect(
-      modelSelectionForAgent(null, null, "deepseek-harness", model, undefined, permissionModeId)
-        ?.model,
+      decodeDeepSeekHarnessTransportModelId(
+        deepSeekHarnessTransportModelId(model, undefined, thinkingOptionId),
+      ),
+    ).toEqual({ model, thinkingOptionId });
+    expect(
+      modelSelectionForAgent(
+        null,
+        null,
+        "deepseek-harness",
+        model,
+        thinkingOptionId,
+        permissionModeId,
+      )?.model,
     ).toBe(carrier);
   });
 

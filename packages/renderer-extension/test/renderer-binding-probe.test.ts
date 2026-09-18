@@ -1093,11 +1093,14 @@ describe("Renderer Composer DOM behavior", () => {
           id: "deepseek-harness-model-v1.Zmxhc2g",
         }),
         effectivePermissionModeId: harnessPermissionModeIdSchema.parse("trusted-run"),
+        effectiveThinkingOptionId: thinkingOptionId,
+        availableThinkingOptions: [{ id: thinkingOptionId, label: "High" }],
         locked: true,
       }),
     ).toEqual({
       agent: "deepseek-harness",
       model: { id: "deepseek-harness-model-v1.Zmxhc2g" },
+      thinkingOptionId: "high",
       permissionModeId: "trusted-run",
     });
     expect(

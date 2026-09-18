@@ -507,6 +507,43 @@ describe("Renderer draft prewarm policy", () => {
     await bridge.sendRequest("thread/start", { cwd: "/tmp/project", model: "gpt-5" });
     await bridge.prewarmThreadStart?.({ cwd: "/tmp/project", model: "gpt-5" });
     await bridge.prewarmThreadStart?.({ ephemeral: true, model: "gpt-5" });
+    await bridge.prewarmThreadStart?.({
+      ephemeral: true,
+      threadSource: "code_review",
+      model: {
+        model: "codexhost/pi-native@pi-model-v1.cHJvdmlkZXIvbW9kZWw@max",
+        reasoningEffort: "high",
+      },
+    });
+    await bridge.prewarmThreadStart?.({
+      ephemeral: true,
+      threadSource: "code_review",
+      model: { model: "gpt-5", reasoningEffort: "high" },
+    });
+    policy.select(null);
+    await bridge.prewarmThreadStart?.({
+      ephemeral: true,
+      threadSource: "code_review",
+      model: { model: "gpt-5.2-codex", reasoningEffort: "high" },
+    });
+    await bridge.sendRequest("thread/start", {
+      ephemeral: true,
+      threadSource: "code_review",
+      model: null,
+    });
+    await bridge.sendRequest("thread/start", {
+      ephemeral: true,
+      threadSource: "code_review",
+      model: {
+        model: "codexhost/deepseek-harness-native@deepseek-model@workspace-write@max",
+        reasoningEffort: "high",
+      },
+    });
+    await bridge.sendRequest("thread/start", {
+      ephemeral: true,
+      threadSource: "code_review",
+      model: { model: "gpt-5.3-codex", reasoningEffort: "high" },
+    });
 
     expect(sendRequest).toHaveBeenCalledWith("thread/start", {
       cwd: "/tmp/project",
@@ -519,6 +556,76 @@ describe("Renderer draft prewarm policy", () => {
     expect(prewarmThreadStart).toHaveBeenNthCalledWith(2, {
       ephemeral: true,
       model: "gpt-5",
+    });
+    expect(prewarmThreadStart).toHaveBeenNthCalledWith(3, {
+      ephemeral: true,
+      threadSource: "code_review",
+      model: "codexhost/pi-native",
+    });
+    expect(prewarmThreadStart).toHaveBeenNthCalledWith(4, {
+      ephemeral: true,
+      threadSource: "code_review",
+      model: "codexhost/pi-native",
+    });
+    expect(prewarmThreadStart).toHaveBeenNthCalledWith(5, {
+      ephemeral: true,
+      threadSource: "code_review",
+      model: "gpt-5.2-codex",
+    });
+    expect(sendRequest).toHaveBeenNthCalledWith(2, "thread/start", {
+      ephemeral: true,
+      threadSource: "code_review",
+    });
+    expect(sendRequest).toHaveBeenNthCalledWith(3, "thread/start", {
+      ephemeral: true,
+      threadSource: "code_review",
+    });
+    expect(sendRequest).toHaveBeenNthCalledWith(4, "thread/start", {
+      ephemeral: true,
+      threadSource: "code_review",
+      model: "gpt-5.3-codex",
+    });
+  });
+
+  it("routes detached Review through the manager's conversation lifecycle", async () => {
+    const sendRequest = vi.fn(async (_method: string, parameters: unknown) => parameters);
+    const bridge = requestBridgeFixture({ sendRequest });
+    const manager = {
+      ...requestManagerFixture(),
+      startConversation: (parameters: unknown) => bridge.sendRequest("thread/start", parameters),
+    };
+    const target: DraftPrewarmPolicyTarget = {};
+    installDraftPrewarmPolicyBridge(manager, bridge, "local", target, {
+      discardAllPrewarmedThreads: vi.fn(),
+    });
+    const policy = target.__codexhostDraftPrewarmPolicyV1 as {
+      select(model: string | null): boolean;
+    };
+
+    policy.select("codexhost/deepseek-harness-native@deepseek-model@workspace-write@max");
+    await manager.startConversation({
+      ephemeral: true,
+      threadSource: "code_review",
+      model: { model: "gpt-5.2-codex", reasoningEffort: "high" },
+    });
+    policy.select(null);
+    await manager.startConversation({
+      ephemeral: true,
+      threadSource: "code_review",
+      model: {
+        model: "codexhost/deepseek-harness-native@deepseek-model@workspace-write@max",
+        reasoningEffort: "high",
+      },
+    });
+
+    expect(sendRequest).toHaveBeenNthCalledWith(1, "thread/start", {
+      ephemeral: true,
+      threadSource: "code_review",
+      model: "codexhost/deepseek-harness-native@deepseek-model@workspace-write@max",
+    });
+    expect(sendRequest).toHaveBeenNthCalledWith(2, "thread/start", {
+      ephemeral: true,
+      threadSource: "code_review",
     });
   });
 
