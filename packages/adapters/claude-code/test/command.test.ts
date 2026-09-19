@@ -38,6 +38,40 @@ describe("Claude Code executable resolution", () => {
     ).toBe(executable);
   });
 
+  it("prefers the active NVM installation over an older PATH installation", () => {
+    const nvmExecutable = "/home/user/.nvm/versions/node/v22/bin/claude";
+    const pathExecutable = "/opt/homebrew/bin/claude";
+    expect(
+      resolveClaudeCodeExecutable(
+        {
+          environment: {
+            NVM_BIN: "/home/user/.nvm/versions/node/v22/bin",
+            PATH: "/opt/homebrew/bin",
+          },
+          homeDirectory: "/home/user",
+          platform: "darwin",
+        },
+        {
+          isExecutable: (candidate) => candidate === nvmExecutable || candidate === pathExecutable,
+        },
+      ),
+    ).toBe(nvmExecutable);
+  });
+
+  it("keeps an explicit command authoritative over NVM_BIN", () => {
+    const configured = "/custom/claude";
+    expect(
+      resolveClaudeCodeExecutable(
+        {
+          command: configured,
+          environment: { NVM_BIN: "/home/user/.nvm/versions/node/v22/bin" },
+          platform: "darwin",
+        },
+        { isExecutable: (candidate) => candidate === configured },
+      ),
+    ).toBe(configured);
+  });
+
   it("resolves the Windows npm shim to Claude Code's native executable", () => {
     const appData = String.raw`C:\Users\test\AppData\Roaming`;
     const shim = String.raw`C:\Users\test\AppData\Roaming\npm\claude.cmd`;
@@ -114,11 +148,14 @@ describe("Claude Code executable resolution", () => {
     const homeDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "codexhost-claude-home-"));
     directories.push(homeDirectory);
     expect(() =>
-      resolveClaudeCodeExecutable({
-        environment: { PATH: "" },
-        homeDirectory,
-        platform: "linux",
-      }),
+      resolveClaudeCodeExecutable(
+        {
+          environment: { PATH: "" },
+          homeDirectory,
+          platform: "linux",
+        },
+        { isExecutable: () => false },
+      ),
     ).toThrow("not installed");
   });
 });

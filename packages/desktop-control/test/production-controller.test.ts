@@ -153,9 +153,11 @@ describe("production Desktop Controller", () => {
         "kiro-cli",
         "codebuddy",
         "cursor-cli",
+        "traex",
+        "zcode",
+        "hermes",
         "qoder",
         "qoder-cn",
-        "hermes",
       ],
       timeoutMs: 90_000,
     });

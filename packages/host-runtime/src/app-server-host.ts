@@ -2960,7 +2960,7 @@ export class AppServerHost {
                 typeof params.approvalPolicy === "string" ? params.approvalPolicy : "never",
               approvalsReviewer: "user",
               sandbox: sandboxResult(params),
-              reasoningEffort: "medium",
+              reasoningEffort: externalThread.stateObserver.state.effectiveThinkingOptionId ?? null,
               serviceTier: "flex",
               multiAgentMode: "explicitRequestOnly",
               activePermissionProfile: null,

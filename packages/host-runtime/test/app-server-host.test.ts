@@ -18,6 +18,7 @@ import { MappingStore } from "@codexhost/mapping-store";
 import {
   CLAUDE_CODE_NATIVE_TRANSPORT_MODEL_ID,
   encodeClaudeTransportModel,
+  encodeDeepSeekHarnessTransportModel,
   encodeGrokTransportModel,
   encodePiTransportModel,
   type ExternalHarnessId,
@@ -28,6 +29,7 @@ import {
   harnessPluginRouteSchema,
   harnessCommandDescriptorSchema,
   harnessIdSchema,
+  harnessModelCatalogSchema,
   harnessModelRefSchema,
   harnessPermissionModeCatalogSchema,
   harnessPermissionModeIdSchema,
@@ -5058,6 +5060,47 @@ describe("AppServerHost HarnessAdapter projection", () => {
       fixture.collector.waitFor((message) => requestId(message, 33)),
     ).resolves.toMatchObject({ result: { turn: { status: "inProgress" } } });
     fixture.adapter.sessions[0]?.succeedTurn();
+    await stopFixture(fixture);
+  });
+
+  it("preserves DeepSeek max Thinking in the create response and first Turn", async () => {
+    const catalog = harnessModelCatalogSchema.parse({
+      models: [
+        {
+          ref: { id: "deepseek-harness-model-v1.ZGVlcHNlZWstdjQ" },
+          label: "DeepSeek V4",
+          supportedThinkingOptionIds: ["low", "max"],
+        },
+      ],
+      defaultModel: { id: "deepseek-harness-model-v1.ZGVlcHNlZWstdjQ" },
+      thinkingOptions: [
+        { id: "low", label: "Low" },
+        { id: "max", label: "Max" },
+      ],
+      defaultThinkingOptionId: "low",
+    });
+    const adapter = new FakeHarnessAdapter(harnessIdSchema.parse("deepseek-harness"), catalog);
+    const fixture = createFixture({
+      externalAdapters: new Map<ExternalHarnessId, FakeHarnessAdapter>([
+        ["deepseek-harness", adapter],
+      ]),
+    });
+    const model = catalog.defaultModel;
+    const max = harnessThinkingOptionIdSchema.parse("max");
+    if (!model) throw new Error("DeepSeek test catalog has no default Model");
+
+    const threadId = await startExternalThread(
+      fixture,
+      encodeDeepSeekHarnessTransportModel(model, undefined, max),
+    );
+    expect(fixture.collector.messages.find((message) => requestId(message, 1))).toMatchObject({
+      result: { reasoningEffort: "max" },
+    });
+    expect(adapter.sessions[0]?.state.effectiveThinkingOptionId).toBe(max);
+
+    await startPiTurn(fixture, threadId);
+    expect(adapter.sessions[0]?.state.effectiveThinkingOptionId).toBe(max);
+    adapter.sessions[0]?.succeedTurn();
     await stopFixture(fixture);
   });
 

@@ -40,6 +40,10 @@ kit; source details are in `docs/harnesses/cursor/cursor-cli-experimental.md`.
 the official Hermes Agent website favicon. It is bundled locally so the
 Renderer does not depend on the Hermes installation or a network request.
 
+`traex-agent.svg` and `zcode-agent.svg` are compact local product identifiers
+drawn for the Agent picker. They are not extracted official brand assets and
+avoid a runtime dependency on either installed application or the network.
+
 The Agent picker uses the official Pi mark from `https://pi.dev/logo-auto.svg`
 and the Claude mark distributed in Anthropic's official `anthropic.claude-code`
 VS Code extension as inline vector paths. The DeepSeek Harness whale mark is

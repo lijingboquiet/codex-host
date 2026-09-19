@@ -19,6 +19,8 @@
     { "path": "./packages/adapters/kiro-cli/tsconfig.json" },
     { "path": "./packages/adapters/codebuddy/tsconfig.json" },
     { "path": "./packages/adapters/cursor-cli/tsconfig.json" },
+    { "path": "./packages/adapters/traex/tsconfig.json" },
+    { "path": "./packages/adapters/zcode/tsconfig.json" },
     { "path": "./packages/adapters/hermes/tsconfig.json" },
     { "path": "./packages/adapters/qoder/tsconfig.json" },
     { "path": "./packages/adapters/qoder-cn/tsconfig.json" },

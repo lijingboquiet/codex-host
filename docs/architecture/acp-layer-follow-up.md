@@ -1,21 +1,19 @@
 # ACP 层后续开发说明
 
-> 状态：尚未触发；当前仍只有 Grok 使用生产 ACP Transport。
+> 状态：TraeX 已成为第二个生产 ACP Harness；共享层仍待真实差异验证和 contract tests 后再抽取。
 
 ## 背景
 
-codexhost 已通过 ACP v1 接入 Grok CLI。当前调用链是：
+codexhost 已通过 ACP v1 接入 Grok CLI 和 TraeX CLI。两条调用链分别由各自 Adapter 拥有：
 
 ```text
 Host Runtime
   -> HarnessAdapter
-    -> GrokAdapter
-      -> GrokAcpTransport
-        -> @agentclientprotocol/sdk
-          -> grok agent --no-leader stdio
+    -> GrokAdapter -> GrokAcpTransport -> grok agent --no-leader stdio
+    -> TraexAdapter -> TraexTransport -> traex acp serve
 ```
 
-`HarnessAdapter` 仍是 Host Runtime 唯一依赖的领域接口。ACP 只是 `GrokAdapter` 内部连接 Grok CLI 的通信协议，ACP 类型和 Grok `_meta` 字段不会进入 Host Runtime、Protocol Core 或 Renderer。
+`HarnessAdapter` 仍是 Host Runtime 唯一依赖的领域接口。ACP 只是具体 Adapter 内部连接 CLI 的通信协议，ACP 类型和 Harness-specific 字段不会进入 Host Runtime、Protocol Core 或 Renderer。
 
 ## 当前状态
 
@@ -25,6 +23,7 @@ ACP 相关实现位于：
 
 ```text
 packages/adapters/grok/src/acp-transport.ts
+packages/adapters/traex/src/acp-transport.ts
 ```
 
 它已经封装：
@@ -57,13 +56,13 @@ packages/adapters/grok/src/acp-transport.ts
 
 ## 为什么现在不抽取
 
-目前只有 Grok 一个生产 ACP Harness。现在抽取公共层只能依据单个实现猜测变化点，容易得到一个把 Grok 实现参数化的浅模块。
+TraeX 已作为第二个生产 ACP Harness 接入。两套实现目前仍各自拥有 transport：Grok 的扩展字段、认证和历史机制与 TraeX 的 ACP 配置、elicitation 和 rollout 校验不同；在完成双方真实运行验收与可复用 contract tests 前，不急于抽取共享生产层。
 
 采用的原则是：
 
 > 一个 Adapter 只有假设中的共享接口；两个真实 Adapter 才能暴露稳定的公共部分。
 
-因此，应等第二个生产 ACP Harness 接入并完成最小实现后，再比较两套代码并抽取共同机制。
+因此，下一步应基于 Grok 与 TraeX 的已验证差异比较两套代码，只抽取稳定的连接与生命周期机制。
 
 ## 抽取触发条件
 
@@ -226,7 +225,8 @@ ACP 能够传输 Session、Prompt 和流式 Update，不等于它已经提供 co
 
 ## 当前参考文件
 
-- `packages/adapters/grok/src/acp-transport.ts`：当前 ACP 连接和进程机制
+- `packages/adapters/grok/src/acp-transport.ts`：Grok ACP 连接和进程机制
+- `packages/adapters/traex/src/acp-transport.ts`：TraeX ACP 连接和进程机制
 - `packages/adapters/grok/src/grok-adapter.ts`：ACP 到 `HarnessAdapter` 领域事件的 Grok 投影
 - `packages/adapters/grok/src/grok-models.ts`：Grok Model/Thinking 元数据解释
 - `packages/adapters/grok/src/grok-usage.ts`：标准 ACP 与 Grok Usage 映射
@@ -237,7 +237,7 @@ ACP 能够传输 Session、Prompt 和流式 Update，不等于它已经提供 co
 
 ## 决策摘要
 
-- 当前：ACP Transport 私有于 `GrokAdapter`，没有通用 ACP 层。
+- 当前：ACP Transport 分别私有于 `GrokAdapter` 和 `TraexAdapter`，没有通用 ACP 层。
 - 保持：`HarnessAdapter` 是 Host Runtime 唯一领域抽象。
 - 触发：第二个生产 ACP Harness 出现并验证差异后再抽取。
 - 目标：共享 ACP 通信机制，不共享 Harness-specific 领域语义。

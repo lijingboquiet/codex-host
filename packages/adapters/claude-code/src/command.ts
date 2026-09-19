@@ -1,6 +1,8 @@
 import path from "node:path";
 
 import {
+  environmentValue,
+  isExecutableFile,
   resolveHarnessExecutable,
   targetPath,
   VERSION_MANAGER_ROOTS,
@@ -62,11 +64,27 @@ export function resolveClaudeCodeExecutable(
   dependencies: HarnessDiscoveryDependencies = {},
 ): string {
   const platform = input.platform ?? process.platform;
+  const environment = input.environment ?? process.env;
+  const explicitlyConfigured =
+    input.command ?? environmentValue(environment, "CODEXHOST_CLAUDE_COMMAND");
+  // GUI apps can inherit NVM_BIN without carrying that directory in PATH. In
+  // that case PATH may expose an older Homebrew Claude before the generic
+  // version-manager fallback runs. Honour the active NVM installation first,
+  // while keeping an explicit CODEXHOST_CLAUDE_COMMAND authoritative.
+  if (!explicitlyConfigured && platform !== "win32") {
+    const nvmBin = environmentValue(environment, "NVM_BIN");
+    if (nvmBin) {
+      const candidate = targetPath(platform).join(nvmBin, claudeCodeDiscoverySpec.command);
+      const isExecutable =
+        dependencies.isExecutable ?? ((value: string) => isExecutableFile(value, platform));
+      if (isExecutable(candidate)) return path.resolve(candidate);
+    }
+  }
   const resolution = resolveHarnessExecutable(
     claudeCodeDiscoverySpec,
     {
       ...(input.command ? { command: input.command } : {}),
-      environment: input.environment ?? process.env,
+      environment,
       ...(input.homeDirectory ? { homeDirectory: input.homeDirectory } : {}),
       platform,
     },

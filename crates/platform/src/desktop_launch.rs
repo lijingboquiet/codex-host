@@ -22,8 +22,8 @@ use super::process::{
     same_process_instance, signal_processes_exact,
 };
 use super::{
-    CODEX_CLI_PATH_ENV, DesktopInstallation, DesktopLaunchMode, PlatformError,
-    STOCK_CODEX_PATH_ENV, canonical_existing_file,
+    CODEX_CLI_PATH_ENV, DesktopInstallation, DesktopLaunchMode, ISOLATE_DESKTOP_PROFILE_ENV,
+    PlatformError, STOCK_CODEX_PATH_ENV, canonical_existing_file,
 };
 
 #[cfg(target_os = "windows")]
@@ -339,7 +339,17 @@ fn desktop_launch_command(
     additional_arguments: &[OsString],
     additional_environment: &[(OsString, OsString)],
 ) -> Result<Command, PlatformError> {
-    let environment = managed_desktop_environment(installation, shim_path, additional_environment)?;
+    let isolate_desktop_profile = cfg!(target_os = "macos")
+        && additional_environment
+            .iter()
+            .any(|(name, value)| name == ISOLATE_DESKTOP_PROFILE_ENV && value == "1");
+    let additional_environment = additional_environment
+        .iter()
+        .filter(|(name, _)| name != ISOLATE_DESKTOP_PROFILE_ENV)
+        .cloned()
+        .collect::<Vec<_>>();
+    let environment =
+        managed_desktop_environment(installation, shim_path, &additional_environment)?;
 
     #[cfg(target_os = "macos")]
     let mut command = match mode {
@@ -394,6 +404,12 @@ fn desktop_launch_command(
     ));
 
     configure_managed_desktop_environment(&mut command, std::env::vars_os(), &environment);
+    if isolate_desktop_profile {
+        command
+            .env_remove("CODEX_HOME")
+            .env_remove("CODEX_ELECTRON_USER_DATA_PATH")
+            .env_remove(ISOLATE_DESKTOP_PROFILE_ENV);
+    }
 
     command
         .stdin(Stdio::null())

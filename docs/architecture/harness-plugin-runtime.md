@@ -1,12 +1,12 @@
 # Harness 插件运行时：动态加载与预装发行
 
-> 状态：七个既有 Harness 和用户目录插件已统一使用动态加载器；**完整插件化尚未完成**。本文描述当前代码，不替代[架构与迁移方案](harness-plugin-architecture.md)。
+> 状态：十五个预装 Harness 和用户目录插件已统一使用动态加载器；**完整插件化尚未完成**。本文描述当前代码，不替代[架构与迁移方案](harness-plugin-architecture.md)。
 
 ## 当前范围
 
 当前源码启动路径可以加载原先不认识的外部 Harness ID，通过 `codexhost/harness/plugins/list` 返回描述，并通过公共 Harness 检查接口和 `thread/start` 调用该插件。
 
-七个既有 Adapter 通过同样的 `manifest.json` 和 `createHarnessAdapter` 工厂加载；`adapter-composition.ts` 已删除，Host 源码、包依赖和 TypeScript references 不再直接引用具体 Adapter 包。预装集合仅由发行清单 [`scripts/release/harness-plugins.json`](../../scripts/release/harness-plugins.json) 决定。原生构造参数、预取和 Claude Code 的直接/Broker 选择仍由相应插件负责。
+十五个预装 Adapter 通过同样的 `manifest.json` 和 `createHarnessAdapter` 工厂加载；`adapter-composition.ts` 已删除，Host 源码、包依赖和 TypeScript references 不再直接引用具体 Adapter 包。预装集合仅由发行清单 [`scripts/release/harness-plugins.json`](../../scripts/release/harness-plugins.json) 决定。原生构造参数、预取和 Claude Code 的直接/Broker 选择仍由相应插件负责。
 
 本地会话导入已使用公共 `sessionImport` 契约、Host 映射事务与动态设置页；Claude Code、Pi、Hermes 和 DSH 已提供实际实现。DSH 仅支持精确 `0.1.2-rc.1` / `0.1.5-rc.1` 的托管 Web，Legacy 协议已移除。完整原生引用只在 Adapter 与 Host 间流转，详见[会话导入](harness-session-import.md)。这不代表普通 Agent Picker 已完成动态接入。
 
@@ -129,6 +129,10 @@ Qoder 的启动认证失败或消息流意外结束会终结活动 Turn、发布
 
 Qoder 沿用现有公共 Model Catalog 和工具投影契约，不增加专用分组、禁用状态或文件全文字段。模型目录保留 SDK 返回的模型及顺序，不因 `isEnabled` 字段过滤模型；模型选择是否成功由原生接口决定。两版 Adapter 均按工作目录缓存成功目录，不设时间有效期，显式 `refresh` 清除对应缓存，关闭 Adapter 时清空；失败结果不缓存。SDK 查询仍使用 `fetchStrategy: "cache"`，显式刷新仅绕过 Adapter 缓存，不强制原生联网更新。Write/Edit 沿用 Pi/OMP 已使用的公共工具投影兼容路径，不增加 namespace 开关或原生 patch 门槛，也不改变其他 Harness 的历史状态投影。
 
+TraeX 和 ZCode 是两个独立预装插件，不替换官方 Codex，也不复用 Claude Code、DeepSeek Harness 或彼此的会话。TraeX 使用 `traex acp serve` 提供的 ACP v1；模型、Thinking、权限请求、结构化问答和取消由 ACP 传输，恢复快照与稳定 Turn identity 则由 TraeX 原生 rollout 历史校验。ZCode 使用其 App 内置 `zcode.cjs app-server` 的 ZCode Protocol v1；私有 NDJSON RPC、反向权限/问题请求、事件投影和历史恢复全部封装在 `adapter-zcode` 内，不进入 Host 或 Renderer 公共协议。两者都只读取原生模型目录和登录态，不复制 Provider 凭据，也不经过额外 LLM Router。
+
+TraeX 的 Permission Mode 在创建 Session 时固定；ZCode 的 Permission Mode 是 live 配置，但活动 Turn 中仍拒绝切换。两者都允许在活动 Turn 中调用公共 Model / Thinking 配置接口；成功只表示原生 Harness 已确认新配置，不承诺正在运行的请求中途换模型。TraeX 和 ZCode 当前都不声明 Fork 或 Rollback，直到对应原生身份、历史和 Desktop 恢复行为完成独立验证。
+
 ## 公共查询和路由
 
 目录请求在被请求的 Host 连接内处理，不接受客户端提供文件系统路径：
@@ -141,13 +145,13 @@ Qoder 沿用现有公共 Model Catalog 和工具投影契约，不增加专用�
 }
 ```
 
-结果中的 `plugins` 包含该连接加载的所有插件描述，包括七个预装 Harness：`id`、`name`、`version`、可选数据 URL `icon` 和 `links`。查询结果没有后端入口、文件路径、环境变量或 SDK 对象；是否可用和能力仍通过 `codexhost/harness/inspect` 获取。
+结果中的 `plugins` 包含该连接加载的所有插件描述，包括发行清单中的十五个预装 Harness：`id`、`name`、`version`、可选数据 URL `icon` 和 `links`。查询结果没有后端入口、文件路径、环境变量或 SDK 对象；是否可用和能力仍通过 `codexhost/harness/inspect` 获取。
 
 Renderer 的 `listHarnessPlugins()` 使用绑定的 RequestManager 发送此固定请求并校验结果；路由代理使用当前目标 Host，显式 `clientForHost` 使用对应 Host 的客户端。旧 Host 不支持此方法时，错误会传回调用者，不伪装成空目录。
 
 新 ID 使用共享的 `encodeHarnessPluginRoute` / `decodeHarnessPluginRoute`，保留 Harness ID、Model Ref、Thinking 和 Permission Mode；结果是 `codexhost/plugin-v1@` 加规范 JSON 的小写十六进制编码，可放入 `thread/start.params.model`。这是运输编码，**不是加密，不能放入凭据**。
 
-此前缀下的非法数据直接报错，不回落到官方 Codex。有效但未安装的插件路由同样不会交给官方 app-server。普通官方模型路由不受影响。既有七种专用编码暂时保留，后续迁移不得直接删除历史读取能力。
+此前缀下的非法数据直接报错，不回落到官方 Codex。有效但未安装的插件路由同样不会交给官方 app-server。普通官方模型路由不受影响。既有专用编码暂时保留，后续迁移不得直接删除历史读取能力。
 
 ### 只读账号额度
 
@@ -185,8 +189,8 @@ DeepSeek 插件通过自身的 HTTP/WebSocket 实现连接受支持的本机 DSH
 - Manifest/入口/图标 symlink 逃逸、大小限制、主动 SVG 拒绝、工厂身份不符、超时返回清理与幂等关闭。
 - Host 中未知插件的目录查询、检查、Thread 创建、持久化身份、关闭；未安装和非法路由不泄漏到官方流；官方请求继续转发。
 - 共享路由的配置往返、规范性、长度及输入验证；Renderer 目录结果校验和不同客户端隔离；共享契约 browser bundle。
-- 七个预装插件的真实工厂加载、独立实例、显式 CLI 参数、后台预取和 macOS Broker 无直接回退；通用会话导入入口在动态加载后绑定 Adapter，旧 DSH RPC 复用同一事务。
-- 分离构建并搬移到仓库外的 Host/插件产物：加载七个预装插件、额外用户插件，以及移除所有插件后官方请求继续转发。
+- 十五个预装插件的真实工厂加载、独立实例、显式 CLI 参数、后台预取和 macOS Broker 无直接回退；通用会话导入入口在动态加载后绑定 Adapter，旧 DSH RPC 复用同一事务。
+- 分离构建并搬移到仓库外的 Host/插件产物：加载全部预装插件、额外用户插件，以及移除所有插件后官方请求继续转发。
 - 恢复、Pi/DeepSeek 导入、委派、协议路由和 Renderer 的定向回归。
 
-这些是合成测试、构建和分离 Bundle 冒烟检查，不等同于真实 Codex Desktop、七个原生 Harness、macOS Broker、SSH 远端或完整安装/升级验收。后续仍须按架构方案的能力基线和发布 Gate 完成迁移与验证。
+这些是合成测试、构建和分离 Bundle 冒烟检查，不等同于真实 Codex Desktop、全部原生 Harness、macOS Broker、SSH 远端或完整安装/升级验收。后续仍须按架构方案的能力基线和发布 Gate 完成迁移与验证。

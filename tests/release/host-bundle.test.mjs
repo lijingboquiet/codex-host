@@ -62,7 +62,14 @@ async function runPackagedHost(host, directory, requests) {
   );
   const environment = { ...process.env };
   for (const key of Object.keys(environment))
-    if (key.startsWith("CODEXHOST_") || key === "NODE_PATH") delete environment[key];
+    if (
+      key.startsWith("CODEXHOST_") ||
+      key === "CODEX_HOME" ||
+      key === "NODE_OPTIONS" ||
+      key === "NODE_PATH"
+    ) {
+      delete environment[key];
+    }
   Object.assign(environment, {
     HOME: directory,
     USERPROFILE: directory,
@@ -162,7 +169,7 @@ describe("release Host and independent plugin Bundles", () => {
     }
   });
 
-  it("runs relocated release artifacts with seven plugins, an unknown plugin, and no plugins", async () => {
+  it("runs relocated release artifacts with all plugins, an unknown plugin, and no plugins", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "codexhost-plugin-release-"));
     const app = path.join(directory, "build", "app");
     const relocated = path.join(directory, "relocated runtime", "app");
@@ -267,5 +274,5 @@ describe("release Host and independent plugin Bundles", () => {
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
-  }, 45_000);
+  }, 90_000);
 });

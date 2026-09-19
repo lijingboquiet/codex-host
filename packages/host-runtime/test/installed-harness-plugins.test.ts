@@ -21,6 +21,8 @@ const classes = {
   "kiro-cli": "KiroAdapter",
   codebuddy: "CodeBuddyAdapter",
   "cursor-cli": "CursorAdapter",
+  traex: "TraexAdapter",
+  zcode: "ZcodeAdapter",
   hermes: "HermesAdapter",
   qoder: "QoderAdapter",
   "qoder-cn": "QoderAdapter",
@@ -90,12 +92,14 @@ describe("installed Harness composition", () => {
     } finally {
       await registry.close();
     }
-  }, 35_000);
+  }, 60_000);
 
   it("provides every built-in command catalog before inspection or Session creation", async () => {
     const expected = {
       codebuddy: [],
       "cursor-cli": [],
+      traex: [],
+      zcode: [],
       pi: ["/compact"],
       "claude-code": ["/compact", "/init", "/recap"],
       "deepseek-harness": ["/compact", "/dsh-goal", "/plan"],
@@ -150,6 +154,8 @@ describe("installed Harness composition", () => {
     ["kiro-cli", "CODEXHOST_KIRO_COMMAND"],
     ["codebuddy", "CODEXHOST_CODEBUDDY_COMMAND"],
     ["cursor-cli", "CODEXHOST_CURSOR_COMMAND"],
+    ["traex", "CODEXHOST_TRAEX_COMMAND"],
+    ["zcode", "CODEXHOST_ZCODE_COMMAND"],
     ["hermes", "CODEXHOST_HERMES_COMMAND"],
     ["qoder", "CODEXHOST_QODER_COMMAND"],
     ["qoder-cn", "CODEXHOST_QODERCN_COMMAND"],

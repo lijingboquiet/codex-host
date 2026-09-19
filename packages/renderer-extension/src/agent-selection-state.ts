@@ -16,6 +16,8 @@ export const KNOWN_RENDERER_AGENTS = [
   "kiro-cli",
   "codebuddy",
   "cursor-cli",
+  "traex",
+  "zcode",
   "hermes",
   "qoder",
   "qoder-cn",
@@ -50,6 +52,10 @@ export interface DraftComposerState {
   codeBuddyModel?: HarnessModelRef;
   codeBuddyThinkingOptionId?: HarnessThinkingOptionId;
   cursorCliModel?: HarnessModelRef;
+  traexModel?: HarnessModelRef;
+  traexThinkingOptionId?: HarnessThinkingOptionId;
+  zcodeModel?: HarnessModelRef;
+  zcodeThinkingOptionId?: HarnessThinkingOptionId;
   hermesModel?: HarnessModelRef;
   qoderModel?: HarnessModelRef;
   qoderThinkingOptionId?: HarnessThinkingOptionId;
@@ -235,6 +241,10 @@ export class DraftAgentController<Composer extends object> {
     else if (agent === "codebuddy") delete state.codeBuddyModel;
     if (agent === "cursor-cli" && model) state.cursorCliModel = model;
     else if (agent === "cursor-cli") delete state.cursorCliModel;
+    if (agent === "traex" && model) state.traexModel = model;
+    else if (agent === "traex") delete state.traexModel;
+    if (agent === "zcode" && model) state.zcodeModel = model;
+    else if (agent === "zcode") delete state.zcodeModel;
     if (agent === "hermes" && model) state.hermesModel = model;
     else if (agent === "hermes") delete state.hermesModel;
     if (agent === "qoder" && model) state.qoderModel = model;
@@ -265,6 +275,12 @@ export class DraftAgentController<Composer extends object> {
     if (agent === "codebuddy" && thinkingOptionId) {
       state.codeBuddyThinkingOptionId = thinkingOptionId;
     } else if (agent === "codebuddy") delete state.codeBuddyThinkingOptionId;
+    if (agent === "traex" && thinkingOptionId) {
+      state.traexThinkingOptionId = thinkingOptionId;
+    } else if (agent === "traex") delete state.traexThinkingOptionId;
+    if (agent === "zcode" && thinkingOptionId) {
+      state.zcodeThinkingOptionId = thinkingOptionId;
+    } else if (agent === "zcode") delete state.zcodeThinkingOptionId;
     if (agent === "qoder" && thinkingOptionId) {
       state.qoderThinkingOptionId = thinkingOptionId;
     } else if (agent === "qoder") delete state.qoderThinkingOptionId;
@@ -284,6 +300,8 @@ export class DraftAgentController<Composer extends object> {
         "kiro-cli",
         "codebuddy",
         "cursor-cli",
+        "traex",
+        "zcode",
         "hermes",
         "qoder",
         "qoder-cn",
@@ -313,6 +331,8 @@ export class DraftAgentController<Composer extends object> {
     if (agent === "kiro-cli") return state.kiroCliModel;
     if (agent === "codebuddy") return state.codeBuddyModel;
     if (agent === "cursor-cli") return state.cursorCliModel;
+    if (agent === "traex") return state.traexModel;
+    if (agent === "zcode") return state.zcodeModel;
     if (agent === "hermes") return state.hermesModel;
     if (agent === "qoder") return state.qoderModel;
     if (agent === "qoder-cn") return state.qoderCnModel;
@@ -333,6 +353,8 @@ export class DraftAgentController<Composer extends object> {
     if (agent === "antigravity") return state.antigravityThinkingOptionId;
     if (agent === "kiro-cli") return state.kiroCliThinkingOptionId;
     if (agent === "codebuddy") return state.codeBuddyThinkingOptionId;
+    if (agent === "traex") return state.traexThinkingOptionId;
+    if (agent === "zcode") return state.zcodeThinkingOptionId;
     if (agent === "qoder") return state.qoderThinkingOptionId;
     if (agent === "qoder-cn") return state.qoderCnThinkingOptionId;
     return undefined;
@@ -374,6 +396,8 @@ export class DraftAgentController<Composer extends object> {
     else if (agent === "kiro-cli") state.kiroCliModel = model;
     else if (agent === "codebuddy") state.codeBuddyModel = model;
     else if (agent === "cursor-cli") state.cursorCliModel = model;
+    else if (agent === "traex") state.traexModel = model;
+    else if (agent === "zcode") state.zcodeModel = model;
     else if (agent === "hermes") state.hermesModel = model;
     else if (agent === "qoder") state.qoderModel = model;
     else if (agent === "qoder-cn") state.qoderCnModel = model;
@@ -437,6 +461,14 @@ export class DraftAgentController<Composer extends object> {
       state.codeBuddyThinkingOptionId = thinkingOptionId;
     } else if (agent === "codebuddy") {
       delete state.codeBuddyThinkingOptionId;
+    } else if (agent === "traex" && thinkingOptionId) {
+      state.traexThinkingOptionId = thinkingOptionId;
+    } else if (agent === "traex") {
+      delete state.traexThinkingOptionId;
+    } else if (agent === "zcode" && thinkingOptionId) {
+      state.zcodeThinkingOptionId = thinkingOptionId;
+    } else if (agent === "zcode") {
+      delete state.zcodeThinkingOptionId;
     } else if (agent === "qoder" && thinkingOptionId) {
       state.qoderThinkingOptionId = thinkingOptionId;
     } else if (agent === "qoder") {

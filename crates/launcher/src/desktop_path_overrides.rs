@@ -25,20 +25,17 @@ pub(crate) fn forwarded(
     variables: impl IntoIterator<Item = (OsString, OsString)>,
 ) -> Vec<(OsString, OsString)> {
     let variables = variables.into_iter().collect::<Vec<_>>();
-    if variables
-        .iter()
-        .any(|(name, value)| {
-            environment_name_matches(name, "CODEXHOST_REMOTE_SSH_MANAGED") && value == "1"
-        })
-    {
+    if variables.iter().any(|(name, value)| {
+        environment_name_matches(name, "CODEXHOST_REMOTE_SSH_MANAGED") && value == "1"
+    }) {
         return Vec::new();
     }
     variables
         .into_iter()
         .filter_map(|(name, value)| {
-            let normalized_name = PATH_OVERRIDES.iter().find(|expected| {
-                environment_name_matches(name, expected)
-            })?;
+            let normalized_name = PATH_OVERRIDES
+                .iter()
+                .find(|expected| environment_name_matches(&name, expected))?;
             Path::new(&value)
                 .is_absolute()
                 .then(|| (OsString::from(*normalized_name), value))
@@ -100,10 +97,7 @@ mod tests {
         let command = std::env::temp_dir()
             .join("synthetic claude")
             .into_os_string();
-        let expected = (
-            OsString::from("CODEXHOST_CLAUDE_COMMAND"),
-            command.clone(),
-        );
+        let expected = (OsString::from("CODEXHOST_CLAUDE_COMMAND"), command.clone());
         assert_eq!(
             forwarded([
                 expected.clone(),
@@ -119,10 +113,7 @@ mod tests {
     #[test]
     fn matches_override_names_with_platform_environment_semantics() {
         let command = std::env::temp_dir().join("claude").into_os_string();
-        let forwarded = forwarded([(
-            OsString::from("codexhost_claude_command"),
-            command.clone(),
-        )]);
+        let forwarded = forwarded([(OsString::from("codexhost_claude_command"), command.clone())]);
 
         if cfg!(windows) {
             assert_eq!(

@@ -1,0 +1,12 @@
+{
+  "manifestVersion": 1,
+  "id": "traex",
+  "name": "TraeX",
+  "version": "0.0.0",
+  "adapterApiVersion": 1,
+  "entry": "./dist/plugin.js",
+  "links": {
+    "documentation": "https://trae.ai",
+    "installation": "https://trae.ai"
+  }
+}

@@ -35,13 +35,15 @@ use codexhost_platform::{
     APPX_RESUME_ARGUMENT, DesktopProcess, launch_desktop, resume_packaged_application,
 };
 use codexhost_platform::{
-    DesktopIdentity, DesktopInstallation, DesktopLaunchMode, SupervisedChild,
-    canonical_existing_file, configure_background_command,
+    DesktopIdentity, DesktopInstallation, DesktopLaunchMode, ISOLATE_DESKTOP_PROFILE_ENV,
+    SupervisedChild, canonical_existing_file, configure_background_command,
     desktop_root_process_ids_for_installation, discover_codex_desktop, node_entrypoint_path,
     spawn_supervised,
 };
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 use codexhost_platform::{DesktopSession, launch_desktop_session};
+#[cfg(target_os = "macos")]
+use codexhost_platform::{ProcessSnapshot, process_snapshots};
 #[cfg(target_os = "windows")]
 use codexhost_platform::{
     RunningDesktopChoice, hide_console_window, process_executable_path, process_exists,
@@ -95,6 +97,59 @@ const UNMANAGED_DESKTOP_MESSAGE: &str = "Codex Desktop is already running outsid
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 fn desktop_tree_refresh_due(last_refresh: Instant, now: Instant) -> bool {
     now.saturating_duration_since(last_refresh) >= DESKTOP_TREE_REFRESH_INTERVAL
+}
+
+#[cfg(target_os = "macos")]
+fn is_macos_app_executable(path: &Path) -> bool {
+    path.parent().is_some_and(|parent| {
+        parent.file_name().is_some_and(|name| name == "MacOS")
+            && parent.parent().is_some_and(|contents| {
+                contents.file_name().is_some_and(|name| name == "Contents")
+                    && contents
+                        .parent()
+                        .and_then(Path::extension)
+                        .is_some_and(|extension| extension == "app")
+            })
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn macos_desktop_launch_mode(
+    installation: &DesktopInstallation,
+    processes: &[ProcessSnapshot],
+) -> DesktopLaunchMode {
+    let expected = &installation.desktop_executable;
+    let executable_name = expected.file_name();
+    if processes.iter().any(|process| {
+        process.executable != *expected
+            && process.executable.file_name() == executable_name
+            && is_macos_app_executable(&process.executable)
+    }) {
+        DesktopLaunchMode::DirectExecutable
+    } else {
+        DesktopLaunchMode::LaunchServices
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_desktop_launch_environment(
+    mode: DesktopLaunchMode,
+    environment: &[(OsString, OsString)],
+) -> Vec<(OsString, OsString)> {
+    environment
+        .iter()
+        .filter(|(name, _)| {
+            mode != DesktopLaunchMode::DirectExecutable
+                || (name != "CODEX_HOME" && name != "CODEX_ELECTRON_USER_DATA_PATH")
+        })
+        .cloned()
+        .chain((mode == DesktopLaunchMode::DirectExecutable).then(|| {
+            (
+                OsString::from(ISOLATE_DESKTOP_PROFILE_ENV),
+                OsString::from("1"),
+            )
+        }))
+        .collect()
 }
 
 fn managed_desktop_data_directory(
@@ -695,22 +750,29 @@ fn supervise_desktop(
     descriptor_path: &Path,
 ) -> Result<(), Box<dyn Error>> {
     startup_trace("launching Codex Desktop");
+    #[cfg(target_os = "macos")]
+    let launch_mode = macos_desktop_launch_mode(installation, &process_snapshots()?);
+    #[cfg(target_os = "linux")]
+    let launch_mode = DesktopLaunchMode::DirectExecutable;
+    #[cfg(target_os = "macos")]
+    let environment = macos_desktop_launch_environment(launch_mode, environment);
+    #[cfg(target_os = "linux")]
+    let environment = environment.to_vec();
     let desktop_arguments =
-        desktop_path_overrides::launch_arguments(desktop_arguments, environment);
+        desktop_path_overrides::launch_arguments(desktop_arguments, &environment);
+    if launch_mode == DesktopLaunchMode::DirectExecutable {
+        startup_trace("using direct Desktop launch to avoid another App bundle instance");
+    }
     let mut desktop = launch_desktop_session(
         installation,
         &options.shim,
-        if cfg!(target_os = "macos") {
-            DesktopLaunchMode::LaunchServices
-        } else {
-            DesktopLaunchMode::DirectExecutable
-        },
+        launch_mode,
         &desktop_arguments,
-        environment,
+        &environment,
         Duration::from_secs(30),
     )?;
     startup_trace("Codex Desktop launched");
-    let mut controller = start_desktop_controller(options, control, environment)?;
+    let mut controller = start_desktop_controller(options, control, &environment)?;
     let desktop_pid = desktop.root_snapshot().id;
     startup_trace("waiting for Host chain");
     if !wait_for_host_chain(desktop_pid, options, Duration::from_secs(30))? {
@@ -1273,6 +1335,8 @@ mod tests {
     use codexhost_platform::configure_background_command;
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     use codexhost_platform::spawn_supervised;
+    #[cfg(target_os = "macos")]
+    use codexhost_platform::{DesktopIdentity, DesktopInstallation, ProcessSnapshot};
 
     #[cfg(target_os = "windows")]
     use super::PI_COMMAND_ENV;
@@ -1294,6 +1358,8 @@ mod tests {
     };
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     use super::{DESKTOP_TREE_REFRESH_INTERVAL, desktop_tree_refresh_due};
+    #[cfg(target_os = "macos")]
+    use super::{macos_desktop_launch_environment, macos_desktop_launch_mode};
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
     fn throttles_full_desktop_tree_refreshes() {
@@ -1307,6 +1373,86 @@ mod tests {
             started,
             started + DESKTOP_TREE_REFRESH_INTERVAL,
         ));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn uses_direct_launch_only_for_another_macos_app_with_the_same_executable_name() {
+        let installation = DesktopInstallation {
+            identity: DesktopIdentity::MacOsBundle {
+                bundle_identifier: "com.openai.codex".into(),
+            },
+            version: "1.0.0".into(),
+            build: "1".into(),
+            asar_integrity: format!("sha256:{}", "0".repeat(64)),
+            install_root: "/Applications/ChatGPT.app".into(),
+            desktop_launcher: "/Applications/ChatGPT.app/Contents/MacOS/ChatGPT".into(),
+            desktop_executable: "/Applications/ChatGPT.app/Contents/MacOS/ChatGPT".into(),
+            packaged_codex_cli: "/Applications/ChatGPT.app/Contents/Resources/codex".into(),
+            executable_codex_cli: "/Applications/ChatGPT.app/Contents/Resources/codex".into(),
+        };
+        let snapshot = |executable: &str| ProcessSnapshot {
+            id: 10,
+            parent_id: 1,
+            process_group_id: 10,
+            executable: executable.into(),
+            started_at_micros: 1,
+        };
+
+        assert_eq!(
+            macos_desktop_launch_mode(&installation, &[]),
+            codexhost_platform::DesktopLaunchMode::LaunchServices
+        );
+        assert_eq!(
+            macos_desktop_launch_mode(
+                &installation,
+                &[snapshot(
+                    "/Applications/.Traex.app.runtime/Official.app/Contents/MacOS/ChatGPT",
+                )],
+            ),
+            codexhost_platform::DesktopLaunchMode::DirectExecutable
+        );
+        assert_eq!(
+            macos_desktop_launch_mode(
+                &installation,
+                &[snapshot(
+                    "/Users/example/.codex/plugins/chrome/extension-host/macos/arm64/ChatGPT",
+                )],
+            ),
+            codexhost_platform::DesktopLaunchMode::LaunchServices
+        );
+
+        let environment = [
+            (OsString::from("CODEX_HOME"), OsString::from("/traex/home")),
+            (
+                OsString::from("CODEX_ELECTRON_USER_DATA_PATH"),
+                OsString::from("/traex/profile"),
+            ),
+            (
+                OsString::from("CODEXHOST_HOST_RUNTIME_PATH"),
+                OsString::from("/codexhost/runtime"),
+            ),
+        ];
+        assert_eq!(
+            macos_desktop_launch_environment(
+                codexhost_platform::DesktopLaunchMode::DirectExecutable,
+                &environment,
+            ),
+            [
+                environment[2].clone(),
+                (
+                    OsString::from(codexhost_platform::ISOLATE_DESKTOP_PROFILE_ENV),
+                    OsString::from("1"),
+                ),
+            ]
+        );
+        assert_eq!(
+            macos_desktop_launch_environment(
+                codexhost_platform::DesktopLaunchMode::LaunchServices,
+                &environment,
+            ),
+            environment
+        );
     }
 
     #[test]
