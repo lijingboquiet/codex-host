@@ -6,6 +6,20 @@ import { describe, expect, it } from "vitest";
 const root = path.resolve(import.meta.dirname, "../..");
 
 describe("platform packagers", () => {
+  it("keeps the local macOS app bundle in sync with the installed npm payload", async () => {
+    const source = await readFile(path.join(root, "scripts/install-local.sh"), "utf8");
+    expect(source).toContain(
+      'LOCAL_APP_PATH="${CODEXHOST_LOCAL_APP_PATH:-/Applications/codexhost.app}"',
+    );
+    expect(source).toContain('cp -R "$PLATFORM_PACKAGE_ROOT/app" "$STAGED_RESOURCES/app"');
+    expect(source).toContain('mv "$LOCAL_APP_PATH" "$BACKUP_APP"');
+    expect(source).toContain('mv "$STAGED_APP" "$LOCAL_APP_PATH"');
+    expect(source).toContain('APP_LAUNCHER="$LOCAL_APP_PATH/Contents/MacOS/codexhost"');
+    expect(source).toContain('distribution: "installer"');
+    expect(source).toContain('STAGED_VERSION="$(');
+    expect(source).toContain('codesign --verify --deep --strict "$STAGED_APP"');
+  });
+
   it("creates a standard ad-hoc signed macOS DMG", async () => {
     const source = await readFile(path.join(root, "scripts/release/macos/package.sh"), "utf8");
     expect(source).toContain('CONTENTS="$APP_PATH/Contents"');

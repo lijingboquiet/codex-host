@@ -7,9 +7,9 @@ usage() {
   cat <<'EOF'
 usage: scripts/install-local.sh [--no-build]
 
-Build and globally install the current macOS codexhost npm package, stop the
-running Codex Desktop and its previous codexhost runtime, then start Codex
-Desktop through the newly installed codexhost command.
+Build and globally install the current macOS codexhost npm package, update an
+existing /Applications/codexhost.app from that package, stop the running Codex
+Desktop and its previous codexhost runtime, then start the updated installation.
 
 options:
   --no-build  reuse the existing TypeScript, Renderer, and Rust release artifacts
@@ -96,8 +96,17 @@ npm install --global --offline "$PLATFORM_TARBALL" "$META_TARBALL"
 
 NPM_PREFIX="$(npm prefix --global)"
 CODEXHOST_BIN="$NPM_PREFIX/bin/codexhost"
+case "$TARGET" in
+  macos-arm64) PLATFORM_PACKAGE="@codexhost/cli-darwin-arm64" ;;
+  macos-x64) PLATFORM_PACKAGE="@codexhost/cli-darwin-x64" ;;
+esac
+PLATFORM_PACKAGE_ROOT="$NPM_PREFIX/lib/node_modules/$PLATFORM_PACKAGE"
 if [[ ! -x "$CODEXHOST_BIN" ]]; then
   echo "error: installed codexhost command is unavailable: $CODEXHOST_BIN" >&2
+  exit 1
+fi
+if [[ ! -d "$PLATFORM_PACKAGE_ROOT/app" ]]; then
+  echo "error: installed codexhost platform package is unavailable: $PLATFORM_PACKAGE_ROOT" >&2
   exit 1
 fi
 INSTALLED_VERSION="$("$CODEXHOST_BIN" --version)"
@@ -195,5 +204,85 @@ if runtime_running; then
   exit 1
 fi
 
-echo "codexhost local install: starting $CODEXHOST_BIN"
-"$CODEXHOST_BIN"
+LOCAL_APP_PATH="${CODEXHOST_LOCAL_APP_PATH:-/Applications/codexhost.app}"
+APP_LAUNCHER="$CODEXHOST_BIN"
+if [[ -d "$LOCAL_APP_PATH" ]]; then
+  APP_CONTENTS="$LOCAL_APP_PATH/Contents"
+  APP_RESOURCES="$APP_CONTENTS/Resources"
+  for relative in \
+    Contents/Info.plist \
+    Contents/MacOS/codexhost \
+    Contents/Resources/runtime/node; do
+    if [[ ! -f "$LOCAL_APP_PATH/$relative" ]]; then
+      echo "error: existing codexhost app is missing $relative: $LOCAL_APP_PATH" >&2
+      exit 1
+    fi
+  done
+
+  APP_PARENT="$(dirname "$LOCAL_APP_PATH")"
+  STAGED_APP="$APP_PARENT/.codexhost-local-stage-$$.app"
+  BACKUP_APP="$APP_PARENT/.codexhost-local-backup-$$.app"
+  cleanup_local_app() {
+    rm -rf "$STAGED_APP"
+    if [[ -d "$BACKUP_APP" && ! -d "$LOCAL_APP_PATH" ]]; then
+      mv "$BACKUP_APP" "$LOCAL_APP_PATH"
+    fi
+    rm -rf "$BACKUP_APP"
+  }
+  trap cleanup_local_app EXIT
+
+  echo "codexhost local install: updating $LOCAL_APP_PATH"
+  /usr/bin/ditto "$LOCAL_APP_PATH" "$STAGED_APP"
+  STAGED_CONTENTS="$STAGED_APP/Contents"
+  STAGED_RESOURCES="$STAGED_CONTENTS/Resources"
+  rm -rf \
+    "$STAGED_RESOURCES/app" \
+    "$STAGED_RESOURCES/libexec" \
+    "$STAGED_RESOURCES/licenses"
+  cp "$PLATFORM_PACKAGE_ROOT/bin/codexhost" "$STAGED_CONTENTS/MacOS/codexhost"
+  cp -R "$PLATFORM_PACKAGE_ROOT/app" "$STAGED_RESOURCES/app"
+  cp -R "$PLATFORM_PACKAGE_ROOT/libexec" "$STAGED_RESOURCES/libexec"
+  cp -R "$PLATFORM_PACKAGE_ROOT/licenses" "$STAGED_RESOURCES/licenses"
+  cp "$PLATFORM_PACKAGE_ROOT/THIRD_PARTY_NOTICES.txt" \
+    "$STAGED_RESOURCES/THIRD_PARTY_NOTICES.txt"
+  node -e \
+    'const fs = require("node:fs"); const [file, version, target] = process.argv.slice(1); fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, version, distribution: "installer", target }) + "\n");' \
+    "$STAGED_RESOURCES/app/codexhost-distribution.json" \
+    "$VERSION" \
+    "$TARGET"
+  chmod 755 \
+    "$STAGED_CONTENTS/MacOS/codexhost" \
+    "$STAGED_RESOURCES/libexec/codexhost-shim" \
+    "$STAGED_RESOURCES/libexec/codexhost-updater" \
+    "$STAGED_RESOURCES/runtime/node"
+
+  BUNDLE_VERSION="${VERSION%%-*}"
+  BUNDLE_VERSION="${BUNDLE_VERSION%%+*}"
+  /usr/bin/plutil -replace CFBundleShortVersionString -string "$BUNDLE_VERSION" \
+    "$STAGED_CONTENTS/Info.plist"
+  /usr/bin/plutil -replace CFBundleVersion -string "$BUNDLE_VERSION" \
+    "$STAGED_CONTENTS/Info.plist"
+  /usr/bin/codesign --force --sign - "$STAGED_RESOURCES/runtime/node"
+  /usr/bin/codesign --force --sign - "$STAGED_RESOURCES/libexec/codexhost-shim"
+  /usr/bin/codesign --force --sign - "$STAGED_RESOURCES/libexec/codexhost-updater"
+  /usr/bin/codesign --force --sign - "$STAGED_CONTENTS/MacOS/codexhost"
+  /usr/bin/codesign --force --sign - "$STAGED_APP"
+  /usr/bin/codesign --verify --deep --strict "$STAGED_APP"
+  STAGED_VERSION="$(
+    node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).version' \
+      "$STAGED_RESOURCES/app/codexhost-distribution.json"
+  )"
+  if [[ "$STAGED_VERSION" != "$VERSION" ]]; then
+    echo "error: staged codexhost app version does not match $VERSION" >&2
+    exit 1
+  fi
+
+  mv "$LOCAL_APP_PATH" "$BACKUP_APP"
+  mv "$STAGED_APP" "$LOCAL_APP_PATH"
+  rm -rf "$BACKUP_APP"
+  trap - EXIT
+  APP_LAUNCHER="$LOCAL_APP_PATH/Contents/MacOS/codexhost"
+fi
+
+echo "codexhost local install: starting $APP_LAUNCHER"
+"$APP_LAUNCHER"
