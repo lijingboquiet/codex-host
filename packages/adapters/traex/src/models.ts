@@ -6,6 +6,7 @@ import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import type {
   HarnessModelCatalog,
   HarnessModelRef,
+  HarnessModelServiceStatus,
   HarnessPermissionModeCatalog,
   HarnessSessionCapabilities,
   HarnessSessionState,
@@ -73,6 +74,7 @@ export function traexCatalogModelRef(name: string, configName: unknown): Harness
 interface TraexModelRow {
   name?: unknown;
   config_name?: unknown;
+  _meta?: unknown;
 }
 
 interface TraexDebugModel {
@@ -84,6 +86,42 @@ function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function percentage(value: unknown, maximum?: number): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return undefined;
+  if (maximum !== undefined && value > maximum) return undefined;
+  return value;
+}
+
+function nonNegativeSafeInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+}
+
+export function traexModelServiceStatus(row: unknown): HarnessModelServiceStatus | undefined {
+  const trae = record(record(record(row)._meta).trae);
+  const loadPercent = percentage(record(trae.load).percent);
+  const quota = record(trae.weeklyQuota);
+  const usedPercent = percentage(quota.usedPercent, 100);
+  const remainingPercent = percentage(quota.remainingPercent, 100);
+  const resetsAtUnix = nonNegativeSafeInteger(quota.resetTime);
+  const weeklyQuota =
+    quota.applies === true &&
+    typeof quota.isDepleted === "boolean" &&
+    usedPercent !== undefined &&
+    remainingPercent !== undefined
+      ? {
+          usedPercent,
+          remainingPercent,
+          depleted: quota.isDepleted,
+          ...(resetsAtUnix !== undefined ? { resetsAtUnix } : {}),
+        }
+      : undefined;
+  if (loadPercent === undefined && weeklyQuota === undefined) return undefined;
+  return {
+    ...(loadPercent !== undefined ? { loadPercent } : {}),
+    ...(weeklyQuota ? { weeklyQuota } : {}),
+  };
 }
 
 function runJson(
@@ -178,11 +216,13 @@ export async function inspectTraexModels(options: {
           return [option.data.id];
         })
       : [];
+    const serviceStatus = traexModelServiceStatus(row);
     return [
       {
         ref: traexCatalogModelRef(row.name, row.config_name),
         label: row.name,
         ...(supported.length ? { supportedThinkingOptionIds: supported } : {}),
+        ...(serviceStatus ? { serviceStatus } : {}),
       },
     ];
   });

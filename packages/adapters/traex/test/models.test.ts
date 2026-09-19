@@ -5,6 +5,7 @@ import {
   traexCatalogModelRef,
   traexConfiguration,
   traexModelRef,
+  traexModelServiceStatus,
   traexNativeModel,
 } from "../src/models.js";
 
@@ -61,5 +62,50 @@ describe("TraeX configuration", () => {
       "auto",
       "bypass_permissions",
     ]);
+  });
+
+  it("projects TraeX load and applicable weekly quota as Model service status", () => {
+    expect(
+      traexModelServiceStatus({
+        _meta: {
+          trae: {
+            load: { percent: 344 },
+            weeklyQuota: {
+              applies: true,
+              isDepleted: false,
+              usedPercent: 0,
+              remainingPercent: 100,
+              resetTime: 1_789_919_999,
+            },
+          },
+        },
+      }),
+    ).toEqual({
+      loadPercent: 344,
+      weeklyQuota: {
+        usedPercent: 0,
+        remainingPercent: 100,
+        depleted: false,
+        resetsAtUnix: 1_789_919_999,
+      },
+    });
+  });
+
+  it("omits unavailable load and weekly quota that does not apply", () => {
+    expect(
+      traexModelServiceStatus({
+        _meta: {
+          trae: {
+            weeklyQuota: {
+              applies: false,
+              isDepleted: false,
+              usedPercent: 0,
+              remainingPercent: 100,
+            },
+          },
+        },
+      }),
+    ).toBeUndefined();
+    expect(traexModelServiceStatus({ _meta: { trae: { load: { percent: -1 } } } })).toBeUndefined();
   });
 });

@@ -50,12 +50,40 @@ export const harnessThinkingOptionSchema = z
 
 export type HarnessThinkingOption = z.infer<typeof harnessThinkingOptionSchema>;
 
+const modelServiceLoadPercentSchema = z.number().finite().nonnegative();
+const modelServiceQuotaPercentSchema = z.number().finite().min(0).max(100);
+const modelServiceResetUnixSchema = z.number().int().safe().nonnegative();
+
+export const harnessModelWeeklyQuotaSchema = z
+  .object({
+    usedPercent: modelServiceQuotaPercentSchema,
+    remainingPercent: modelServiceQuotaPercentSchema,
+    depleted: z.boolean(),
+    resetsAtUnix: modelServiceResetUnixSchema.optional(),
+  })
+  .strict();
+
+export type HarnessModelWeeklyQuota = z.infer<typeof harnessModelWeeklyQuotaSchema>;
+
+export const harnessModelServiceStatusSchema = z
+  .object({
+    loadPercent: modelServiceLoadPercentSchema.optional(),
+    weeklyQuota: harnessModelWeeklyQuotaSchema.optional(),
+  })
+  .strict()
+  .refine((status) => status.loadPercent !== undefined || status.weeklyQuota !== undefined, {
+    message: "Model service status must contain a reliable field",
+  });
+
+export type HarnessModelServiceStatus = z.infer<typeof harnessModelServiceStatusSchema>;
+
 export const harnessModelSchema = z
   .object({
     ref: harnessModelRefSchema,
     label: nonBlankTextSchema.max(HARNESS_MODEL_LABEL_MAX_LENGTH),
     resolvedModelLabel: harnessResolvedModelLabelSchema.optional(),
     supportedThinkingOptionIds: z.array(harnessThinkingOptionIdSchema).optional(),
+    serviceStatus: harnessModelServiceStatusSchema.optional(),
   })
   .strict();
 

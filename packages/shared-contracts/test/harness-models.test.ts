@@ -33,6 +33,15 @@ function readyInspection() {
           label: "provider / model",
           resolvedModelLabel: "runtime/model-v1",
           supportedThinkingOptionIds: ["off", "high"],
+          serviceStatus: {
+            loadPercent: 344,
+            weeklyQuota: {
+              usedPercent: 0,
+              remainingPercent: 100,
+              depleted: false,
+              resetsAtUnix: 1_789_919_999,
+            },
+          },
         },
         { ref: secondRef, label: "other / model" },
       ],
@@ -154,6 +163,53 @@ describe("Harness Model runtime contracts", () => {
         harnessModelSelectionStateSchema.safeParse({
           effectiveModel: firstRef,
           resolvedModelLabel,
+        }).success,
+      ).toBe(false);
+    }
+  });
+
+  it("keeps bounded browser-safe Model service status snapshots", () => {
+    const serviceStatus = readyInspection().catalog.models[0]?.serviceStatus;
+    expect(serviceStatus).toEqual({
+      loadPercent: 344,
+      weeklyQuota: {
+        usedPercent: 0,
+        remainingPercent: 100,
+        depleted: false,
+        resetsAtUnix: 1_789_919_999,
+      },
+    });
+    expect(
+      harnessModelCatalogSchema.safeParse({
+        models: [{ ref: firstRef, label: "first", serviceStatus: {} }],
+        thinkingOptions: [],
+      }).success,
+    ).toBe(false);
+    for (const loadPercent of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(
+        harnessModelCatalogSchema.safeParse({
+          models: [{ ref: firstRef, label: "first", serviceStatus: { loadPercent } }],
+          thinkingOptions: [],
+        }).success,
+      ).toBe(false);
+    }
+    for (const remainingPercent of [-1, 101]) {
+      expect(
+        harnessModelCatalogSchema.safeParse({
+          models: [
+            {
+              ref: firstRef,
+              label: "first",
+              serviceStatus: {
+                weeklyQuota: {
+                  usedPercent: 0,
+                  remainingPercent,
+                  depleted: false,
+                },
+              },
+            },
+          ],
+          thinkingOptions: [],
         }).success,
       ).toBe(false);
     }

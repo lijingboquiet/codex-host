@@ -1,6 +1,7 @@
 import type {
   HarnessModelCatalog,
   HarnessModelRef,
+  HarnessModelServiceStatus,
   HarnessThinkingOption,
   HarnessThinkingOptionId,
 } from "@codexhost/shared-contracts";
@@ -134,6 +135,29 @@ export function thinkingOptionsForModel(
   )?.supportedThinkingOptionIds;
   if (!supported) return [];
   return catalog?.thinkingOptions.filter((option) => supported.includes(option.id)) ?? [];
+}
+
+function formatStatusPercent(value: number): string {
+  return `${Math.round(value)}%`;
+}
+
+export function rendererModelServiceStatusLabel(
+  status: HarnessModelServiceStatus | undefined,
+): string | undefined {
+  if (!status) return undefined;
+  const parts: string[] = [];
+  if (status.loadPercent !== undefined) {
+    parts.push(`Load ${formatStatusPercent(status.loadPercent)}`);
+    if (status.loadPercent > 100) parts.push("High load");
+  }
+  if (status.weeklyQuota) {
+    parts.push(
+      status.weeklyQuota.depleted
+        ? "Weekly depleted"
+        : `Weekly ${formatStatusPercent(status.weeklyQuota.remainingPercent)} left`,
+    );
+  }
+  return parts.length > 0 ? parts.join(" · ") : undefined;
 }
 
 export function isRendererModelPickerDisabled(view: RendererModelControlView): boolean {
@@ -674,8 +698,13 @@ function rebuildOptions(control: RendererModelPickerControl, view: RendererModel
     text.textContent = model.label;
     text.className = "min-w-0 flex-1 truncate";
     text.title = model.label;
+    const serviceStatus = rendererModelServiceStatusLabel(model.serviceStatus);
+    const statusText = document.createElement("span");
+    statusText.textContent = serviceStatus ?? "";
+    statusText.hidden = serviceStatus === undefined;
+    statusText.className = "shrink-0 text-xs text-token-text-tertiary";
     const check = createCheck();
-    button.append(text, check);
+    button.append(text, statusText, check);
     const row = document.createElement("div");
     row.setAttribute("role", "presentation");
     row.dataset.codexhostModelRow = "true";

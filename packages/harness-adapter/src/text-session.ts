@@ -26,6 +26,8 @@ export type {
   HarnessModel,
   HarnessModelCatalog,
   HarnessModelRef,
+  HarnessModelServiceStatus,
+  HarnessModelWeeklyQuota,
   HarnessPermissionMode,
   HarnessPermissionModeCatalog,
   HarnessPermissionModeId,

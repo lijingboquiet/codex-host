@@ -14,6 +14,7 @@ import {
 import {
   isRendererModelPickerDisabled,
   rendererModelPickerPresentation,
+  rendererModelServiceStatusLabel,
   shouldCloseRendererModelPicker,
   syncRendererLabelText,
 } from "../src/renderer-model-picker.js";
@@ -40,6 +41,23 @@ function catalog(levels: readonly string[]) {
 }
 
 describe("Renderer combined Model and Thinking picker presentation", () => {
+  it("formats load and weekly quota without changing the Model label", () => {
+    expect(rendererModelServiceStatusLabel({ loadPercent: 46 })).toBe("Load 46%");
+    expect(rendererModelServiceStatusLabel({ loadPercent: 344 })).toBe("Load 344% · High load");
+    expect(
+      rendererModelServiceStatusLabel({
+        loadPercent: 8,
+        weeklyQuota: { usedPercent: 0, remainingPercent: 100, depleted: false },
+      }),
+    ).toBe("Load 8% · Weekly 100% left");
+    expect(
+      rendererModelServiceStatusLabel({
+        weeklyQuota: { usedPercent: 100, remainingPercent: 0, depleted: true },
+      }),
+    ).toBe("Weekly depleted");
+    expect(rendererModelServiceStatusLabel(undefined)).toBeUndefined();
+  });
+
   it("anchors the main menu's right edge to the model trigger", () => {
     expect(
       rendererModelPickerMainMenuPlacement(
@@ -66,7 +84,7 @@ describe("Renderer combined Model and Thinking picker presentation", () => {
         { left: 700, right: 900, top: 820 },
         { width: 1200, height: 900 },
       ),
-    ).toEqual({ left: 620, width: 280, maxHeight: 360, bottom: 88 });
+    ).toEqual({ left: 540, width: 360, maxHeight: 360, bottom: 88 });
   });
 
   it("keeps the model submenu top-aligned with the main menu while flipping left", () => {
@@ -75,7 +93,7 @@ describe("Renderer combined Model and Thinking picker presentation", () => {
         { left: 700, right: 1120, top: 100 },
         { width: 1200, height: 900 },
       ),
-    ).toEqual({ left: 416, top: 100, width: 280, maxHeight: 360 });
+    ).toEqual({ left: 336, top: 100, width: 360, maxHeight: 360 });
   });
 
   it("keeps the model submenu on the right when there is enough space", () => {
@@ -84,7 +102,7 @@ describe("Renderer combined Model and Thinking picker presentation", () => {
         { left: 100, right: 280, top: 100 },
         { width: 1200, height: 900 },
       ),
-    ).toEqual({ left: 284, top: 100, width: 280, maxHeight: 360 });
+    ).toEqual({ left: 284, top: 100, width: 360, maxHeight: 360 });
   });
 
   it("does not rewrite an unchanged Thinking label", () => {

@@ -133,6 +133,8 @@ TraeX 和 ZCode 是两个独立预装插件，不替换官方 Codex，也不复�
 
 TraeX 的 Permission Mode 在创建 Session 时固定；ZCode 的 Permission Mode 是 live 配置，但活动 Turn 中仍拒绝切换。两者都允许在活动 Turn 中调用公共 Model / Thinking 配置接口；成功只表示原生 Harness 已确认新配置，不承诺正在运行的请求中途换模型。TraeX 和 ZCode 当前都不声明 Fork 或 Rollback，直到对应原生身份、历史和 Desktop 恢复行为完成独立验证。
 
+公共 Model Catalog 可为单个模型携带可选 `serviceStatus` 快照，包括非负且允许超过 100 的 `loadPercent`，以及 0–100 的 weekly quota 百分比、耗尽状态和可选 Unix 秒重置时间。字段只表达模型服务状态，不参与 Model Ref、选择、收藏或会话持久化；Renderer 缺字段时不显示状态。TraeX 从 `traex models --json` 的 `_meta.trae` 投影这些值，并仅在原生 `weeklyQuota.applies` 明确为 `true` 且快照完整时公开周额度。该目录沿用 Adapter inspect 缓存，显式 `refresh` 才重新执行原生查询。模型周额度不同于下文的账号额度，不通过 `inspectAccount()` 返回。
+
 ## 公共查询和路由
 
 目录请求在被请求的 Host 连接内处理，不接受客户端提供文件系统路径：
