@@ -240,6 +240,8 @@ npm ci
 npm start
 ```
 
+`npm run install:local` 会把当前 GitHub `origin` 记录为安装包的更新源。应用只检查该仓库的 Release；macOS 在替换 App 前还会校验新安装包声明了相同更新源。可通过 `CODEXHOST_RELEASE_REPOSITORY=owner/name` 显式指定，旧安装包默认使用 `bytepioneer-ai/codex-host`。自定义 fork 需要在自己的 Releases 发布对应版本和平台安装包，才能继续使用应用内自动更新。
+
 ### 运行架构
 
 以 Pi 为例。从左到右是一次请求的调用链：Desktop → 公共层 → Pi 插件 → 原生进程。

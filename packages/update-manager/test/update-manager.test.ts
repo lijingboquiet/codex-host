@@ -63,6 +63,7 @@ async function commonOptions(root: string): Promise<CommonUpdateOptions> {
   }
   return {
     version: "1.2.3-test.4",
+    releaseRepository: "lijingboquiet/codex-host",
     launcherPid: 4321,
     ...files,
     runtimeDescriptorPath: path.join(root, "runtime", "desktop-runtime-v1.json"),
@@ -234,6 +235,7 @@ describe("background update manager", () => {
       installer_path: prepared.artifactPath,
       artifact_sha256: sha256(bytes),
       install_root: path.join(root, "Programs", "codexhost"),
+      release_repository: "lijingboquiet/codex-host",
     });
   });
 
@@ -261,6 +263,7 @@ describe("background update manager", () => {
       dmg_path: prepared.artifactPath,
       artifact_sha256: sha256(bytes),
       app_path: appPath,
+      release_repository: "lijingboquiet/codex-host",
     });
   });
 

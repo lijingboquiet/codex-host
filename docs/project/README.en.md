@@ -237,6 +237,8 @@ npm ci
 npm start
 ```
 
+`npm run install:local` records the current GitHub `origin` as the installed update source. The app only checks Releases from that repository, and macOS verifies the replacement declares the same source before activating it. Set `CODEXHOST_RELEASE_REPOSITORY=owner/name` to override detection; legacy packages default to `bytepioneer-ai/codex-host`. A custom fork must publish matching version and platform installers in its own Releases for in-app updates to remain available.
+
 ### Runtime architecture
 
 Using Pi as the example. Left to right is one request’s call chain: Desktop → shared layer → Pi plugin → native process.

@@ -9,6 +9,7 @@ import {
   cleanupTerminalUpdateState,
   compareSemanticVersions,
   createBackgroundUpdateManager,
+  DEFAULT_CODEXHOST_RELEASE_REPOSITORY,
   discoverLatestUpdateStatus,
   fetchLatestGitHubRelease,
   fetchLatestGitHubReleaseWithGitHubCli,
@@ -80,8 +81,15 @@ export function createHostUpdateCoordinator(
         ...(options.environment ? { environment: options.environment } : {}),
         platform,
         signal: requestSignal,
+        repository: (await installedContext()).metadata.releaseRepository,
       });
-      return authenticated ?? fetchLatestGitHubRelease({ signal: requestSignal });
+      return (
+        authenticated ??
+        fetchLatestGitHubRelease({
+          signal: requestSignal,
+          repository: (await installedContext()).metadata.releaseRepository,
+        })
+      );
     });
   let candidate: CodexhostLatestRelease | null = null;
 
@@ -102,7 +110,9 @@ export function createHostUpdateCoordinator(
     context: InstalledUpdateContext,
     release: CodexhostLatestRelease,
   ): Promise<boolean> {
-    if (context.installation.kind === "npm") return true;
+    if (context.installation.kind === "npm") {
+      return context.metadata.releaseRepository === DEFAULT_CODEXHOST_RELEASE_REPOSITORY;
+    }
     const target = context.metadata.target;
     if (target === "linux-x64" || target === "linux-arm64") return false;
     try {
@@ -136,6 +146,9 @@ export function createHostUpdateCoordinator(
       const status = await latestStatus(context);
       try {
         const release = await fetchLatest(signal);
+        if (release.repository !== context.metadata.releaseRepository) {
+          throw new Error("Latest GitHub Release does not match the installed release repository");
+        }
         candidate = release;
         const updateAvailable =
           compareSemanticVersions(context.metadata.version, release.version) < 0;
@@ -200,11 +213,19 @@ export function createHostUpdateCoordinator(
 
       try {
         const release = await fetchLatest();
+        if (release.repository !== context.metadata.releaseRepository) {
+          throw new Error(
+            "Selected GitHub Release does not match the installed release repository",
+          );
+        }
         if (
           compareSemanticVersions(context.metadata.version, release.version) >= 0 ||
           (candidate && candidate.version !== release.version)
         ) {
           throw new Error("The selected update is no longer the current GitHub Release");
+        }
+        if (!(await installable(context, release))) {
+          throw new Error("The selected GitHub Release cannot update this installation");
         }
         const onPrepared = async (info: {
           version: string;

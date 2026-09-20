@@ -40,6 +40,7 @@ pub(crate) struct WindowsInstallation {
     pub(crate) installer_path: PathBuf,
     pub(crate) artifact_sha256: String,
     pub(crate) install_root: PathBuf,
+    pub(crate) release_repository: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -48,6 +49,7 @@ pub(crate) struct MacOsInstallation {
     pub(crate) dmg_path: PathBuf,
     pub(crate) artifact_sha256: String,
     pub(crate) app_path: PathBuf,
+    pub(crate) release_repository: String,
 }
 
 impl Installation {
@@ -118,6 +120,24 @@ fn valid_sha256(value: &str) -> bool {
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
+pub(crate) fn valid_release_repository(value: &str) -> bool {
+    let mut parts = value.split('/');
+    let valid_part = |part: &str| {
+        part.as_bytes()
+            .first()
+            .is_some_and(u8::is_ascii_alphanumeric)
+            && part.len() <= 100
+            && !part.ends_with('.')
+            && part
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'-'))
+    };
+    matches!(
+        (parts.next(), parts.next(), parts.next()),
+        (Some(owner), Some(repository), None) if valid_part(owner) && valid_part(repository)
+    )
+}
+
 impl UpdateRequest {
     pub(crate) fn parse(path: &Path) -> Result<Self, Box<dyn Error>> {
         require_absolute_file(path, "update request")?;
@@ -155,6 +175,9 @@ impl UpdateRequest {
                 if !valid_sha256(&windows.artifact_sha256) {
                     return Err("Windows installer SHA-256 must be lowercase hexadecimal".into());
                 }
+                if !valid_release_repository(&windows.release_repository) {
+                    return Err("Windows release repository must be an owner/name slug".into());
+                }
             }
             Installation::MacosDmg(macos) => {
                 if !cfg!(target_os = "macos") {
@@ -168,6 +191,9 @@ impl UpdateRequest {
                 if !valid_sha256(&macos.artifact_sha256) {
                     return Err("macOS DMG SHA-256 must be lowercase hexadecimal".into());
                 }
+                if !valid_release_repository(&macos.release_repository) {
+                    return Err("macOS release repository must be an owner/name slug".into());
+                }
             }
         }
         Ok(())
@@ -176,7 +202,7 @@ impl UpdateRequest {
 
 #[cfg(test)]
 mod tests {
-    use super::{UpdateRequest, valid_sha256, validate_version};
+    use super::{UpdateRequest, valid_release_repository, valid_sha256, validate_version};
 
     #[test]
     fn accepts_release_semver_and_rejects_ambiguous_versions() {
@@ -193,6 +219,17 @@ mod tests {
         assert!(valid_sha256(&"ab".repeat(32)));
         assert!(!valid_sha256(&"AB".repeat(32)));
         assert!(!valid_sha256("abcd"));
+    }
+
+    #[test]
+    fn accepts_only_bounded_github_repository_slugs() {
+        assert!(valid_release_repository("lijingboquiet/codex-host"));
+        assert!(valid_release_repository("BytePioneer-AI/codex_host.js"));
+        assert!(!valid_release_repository("codex-host"));
+        assert!(!valid_release_repository(".owner/repo"));
+        assert!(!valid_release_repository("owner/-repo"));
+        assert!(!valid_release_repository("owner/repo/extra"));
+        assert!(!valid_release_repository("owner/repo?ref=main"));
     }
 
     #[test]

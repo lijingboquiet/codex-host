@@ -62,7 +62,11 @@ describe("installed update context", () => {
         stateDirectory: path.join(root, "state"),
       }),
     ).resolves.toMatchObject({
-      metadata: { version: "1.2.3", target: "macos-arm64" },
+      metadata: {
+        version: "1.2.3",
+        target: "macos-arm64",
+        releaseRepository: "bytepioneer-ai/codex-host",
+      },
       installation: { kind: "macos-dmg", options: { appPath: app } },
       controller: { port: 41234 },
     });
@@ -172,5 +176,32 @@ describe("installed update context", () => {
         url: "https://example.com",
       }),
     ).toThrow("unknown fields");
+    expect(
+      parseDistributionMetadata({
+        schemaVersion: 1,
+        version: "1.2.3",
+        distribution: "installer",
+        target: "macos-arm64",
+        releaseRepository: "LijingboQuiet/codex-host",
+      }),
+    ).toMatchObject({ releaseRepository: "lijingboquiet/codex-host" });
+    expect(() =>
+      parseDistributionMetadata({
+        schemaVersion: 1,
+        version: "1.2.3",
+        distribution: "installer",
+        target: "macos-arm64",
+        releaseRepository: "https://github.com/owner/repo",
+      }),
+    ).toThrow("owner/name slug");
+    expect(() =>
+      parseDistributionMetadata({
+        schemaVersion: 1,
+        version: "1.2.3",
+        distribution: "installer",
+        target: "macos-arm64",
+        releaseRepository: ["owner/repo"],
+      }),
+    ).toThrow("distribution metadata is invalid");
   });
 });

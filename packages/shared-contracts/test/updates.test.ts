@@ -73,7 +73,7 @@ describe("update runtime contracts", () => {
     }
   });
 
-  it("rejects unknown, unbounded, and non-GitHub data", () => {
+  it("rejects unknown, unbounded, and non-GitHub data while allowing fork Releases", () => {
     expect(updateStatusSchema.safeParse({ ...status, waitPid: 42 }).success).toBe(false);
     expect(updateStatusSchema.safeParse({ ...status, version: "1.2" }).success).toBe(false);
     expect(updateStatusSchema.safeParse({ ...status, error: "x".repeat(501) }).success).toBe(false);
@@ -102,7 +102,7 @@ describe("update runtime contracts", () => {
         status: null,
         error: null,
       }).success,
-    ).toBe(false);
+    ).toBe(true);
     expect(
       updateCheckResultSchema.safeParse({
         currentVersion: "1.2.2",

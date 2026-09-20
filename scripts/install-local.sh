@@ -71,8 +71,34 @@ fi
 
 cd "$REPOSITORY_ROOT"
 VERSION="$(node -p 'require("./package.json").version')"
+if [[ -z "${CODEXHOST_RELEASE_REPOSITORY:-}" ]]; then
+  ORIGIN_URL="$(git config --get remote.origin.url || true)"
+  CODEXHOST_RELEASE_REPOSITORY="$(
+    node -e '
+      const value = process.argv[1];
+      const match = /^(?:https:\/\/github\.com\/|git@github\.com:)([^/]+\/[^/]+?)(?:\.git)?$/.exec(value);
+      if (!match) process.exit(1);
+      process.stdout.write(match[1].toLowerCase());
+    ' "$ORIGIN_URL"
+  )" || {
+    echo "error: origin is not a GitHub repository; set CODEXHOST_RELEASE_REPOSITORY=owner/name" >&2
+    exit 1
+  }
+fi
+CODEXHOST_RELEASE_REPOSITORY="$(
+  node -e '
+    const value = process.argv[1];
+    const pattern = /^[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,99})\/[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,99})$/;
+    if (!pattern.test(value) || value.endsWith(".")) process.exit(1);
+    process.stdout.write(value.toLowerCase());
+  ' "$CODEXHOST_RELEASE_REPOSITORY"
+)" || {
+  echo "error: CODEXHOST_RELEASE_REPOSITORY must be a GitHub owner/name slug" >&2
+  exit 1
+}
+export CODEXHOST_RELEASE_REPOSITORY
 
-echo "codexhost local install: preparing $VERSION for $TARGET"
+echo "codexhost local install: preparing $VERSION for $TARGET from $CODEXHOST_RELEASE_REPOSITORY"
 PACKAGE_ARGUMENTS=(run release:npm -- --target "$TARGET" --version "$VERSION" --pack)
 if [[ "$SKIP_BUILD" == true ]]; then
   PACKAGE_ARGUMENTS+=(--skip-build)
@@ -90,9 +116,10 @@ for artifact in "$PLATFORM_TARBALL" "$META_TARBALL"; do
 done
 
 echo "codexhost local install: installing npm packages"
-# Both local tarballs are installed together. Offline mode prevents the meta
-# package's optional dependencies for other platforms from reaching the registry.
-npm install --global --offline "$PLATFORM_TARBALL" "$META_TARBALL"
+# Install both local tarballs together so the meta package resolves this platform
+# offline. Remove and reinstall the platform package afterward because npm may
+# otherwise retain cached contents for an already installed identical version.
+npm install --global --offline --force "$PLATFORM_TARBALL" "$META_TARBALL"
 
 NPM_PREFIX="$(npm prefix --global)"
 CODEXHOST_BIN="$NPM_PREFIX/bin/codexhost"
@@ -100,6 +127,8 @@ case "$TARGET" in
   macos-arm64) PLATFORM_PACKAGE="@codexhost/cli-darwin-arm64" ;;
   macos-x64) PLATFORM_PACKAGE="@codexhost/cli-darwin-x64" ;;
 esac
+npm uninstall --global "$PLATFORM_PACKAGE"
+npm install --global --offline "$PLATFORM_TARBALL"
 PLATFORM_PACKAGE_ROOT="$NPM_PREFIX/lib/node_modules/$PLATFORM_PACKAGE"
 if [[ ! -x "$CODEXHOST_BIN" ]]; then
   echo "error: installed codexhost command is unavailable: $CODEXHOST_BIN" >&2
@@ -112,6 +141,14 @@ fi
 INSTALLED_VERSION="$("$CODEXHOST_BIN" --version)"
 if [[ "$INSTALLED_VERSION" != "$VERSION" ]]; then
   echo "error: installed codexhost version is $INSTALLED_VERSION; expected $VERSION" >&2
+  exit 1
+fi
+INSTALLED_RELEASE_REPOSITORY="$(
+  node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).releaseRepository ?? ""' \
+    "$PLATFORM_PACKAGE_ROOT/app/codexhost-distribution.json"
+)"
+if [[ "$INSTALLED_RELEASE_REPOSITORY" != "$CODEXHOST_RELEASE_REPOSITORY" ]]; then
+  echo "error: installed codexhost release repository is $INSTALLED_RELEASE_REPOSITORY; expected $CODEXHOST_RELEASE_REPOSITORY" >&2
   exit 1
 fi
 
@@ -246,10 +283,11 @@ if [[ -d "$LOCAL_APP_PATH" ]]; then
   cp "$PLATFORM_PACKAGE_ROOT/THIRD_PARTY_NOTICES.txt" \
     "$STAGED_RESOURCES/THIRD_PARTY_NOTICES.txt"
   node -e \
-    'const fs = require("node:fs"); const [file, version, target] = process.argv.slice(1); fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, version, distribution: "installer", target }) + "\n");' \
+    'const fs = require("node:fs"); const [file, version, target, releaseRepository] = process.argv.slice(1); fs.writeFileSync(file, JSON.stringify({ schemaVersion: 1, version, distribution: "installer", target, releaseRepository }) + "\n");' \
     "$STAGED_RESOURCES/app/codexhost-distribution.json" \
     "$VERSION" \
-    "$TARGET"
+    "$TARGET" \
+    "$CODEXHOST_RELEASE_REPOSITORY"
   chmod 755 \
     "$STAGED_CONTENTS/MacOS/codexhost" \
     "$STAGED_RESOURCES/libexec/codexhost-shim" \

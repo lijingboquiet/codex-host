@@ -34,7 +34,7 @@ async function file(filePath: string, contents = "fixture"): Promise<void> {
   await chmod(filePath, 0o700);
 }
 
-async function npmFixture(): Promise<{
+async function npmFixture(releaseRepository?: string): Promise<{
   root: string;
   hostRuntimePath: string;
   environment: NodeJS.ProcessEnv;
@@ -69,6 +69,7 @@ async function npmFixture(): Promise<{
         version: "1.2.2",
         distribution: "npm",
         target: "macos-arm64",
+        ...(releaseRepository ? { releaseRepository } : {}),
       }),
     ),
   ]);
@@ -116,6 +117,7 @@ async function macFixture(): Promise<{
 
 function release(version = "1.2.3"): CodexhostLatestRelease {
   return {
+    repository: "bytepioneer-ai/codex-host",
     version,
     releaseNotes: `Release ${version}`,
     releaseNotesUrl: `https://github.com/BytePioneer-AI/codex-host/releases/tag/v${version}`,
@@ -140,7 +142,11 @@ describe("Host update coordinator", () => {
         error: null,
       });
       expect(discovery.cli).toHaveBeenCalledWith(
-        expect.objectContaining({ environment: fixture.environment, platform: "darwin" }),
+        expect.objectContaining({
+          environment: fixture.environment,
+          platform: "darwin",
+          repository: "bytepioneer-ai/codex-host",
+        }),
       );
       expect(discovery.http).toHaveBeenCalledTimes(available ? 0 : 1);
       if (!available)
@@ -167,6 +173,44 @@ describe("Host update coordinator", () => {
       error: expect.any(String),
     });
     expect(discovery.http).not.toHaveBeenCalled();
+  });
+
+  it("discovers updates from the repository recorded by a fork build", async () => {
+    const fixture = await npmFixture("lijingboquiet/codex-host");
+    discovery.cli.mockResolvedValue({
+      ...release(),
+      repository: "lijingboquiet/codex-host",
+      releaseNotesUrl: "https://github.com/lijingboquiet/codex-host/releases/tag/v1.2.3",
+    });
+    const coordinator = createHostUpdateCoordinator({
+      ...fixture,
+      platform: "darwin",
+      architecture: "arm64",
+    });
+    await expect(coordinator.check()).resolves.toMatchObject({
+      latestVersion: "1.2.3",
+      updateAvailable: true,
+      installationAvailable: false,
+    });
+    expect(discovery.cli).toHaveBeenCalledWith(
+      expect.objectContaining({ repository: "lijingboquiet/codex-host" }),
+    );
+  });
+
+  it("rejects a Release returned for another repository", async () => {
+    const fixture = await npmFixture();
+    const coordinator = createHostUpdateCoordinator({
+      ...fixture,
+      platform: "darwin",
+      architecture: "arm64",
+      fetchLatest: async () => ({ ...release(), repository: "other/codex-host" }),
+    });
+    await expect(coordinator.check()).resolves.toMatchObject({
+      updateAvailable: false,
+      installationAvailable: false,
+      error: expect.stringContaining("does not match"),
+    });
+    await expect(coordinator.start()).rejects.toThrow("does not match");
   });
 
   it("hands a macOS update to Launcher without starting the Helper", async () => {
@@ -247,6 +291,7 @@ describe("Host update coordinator", () => {
       architecture: "arm64",
       manager,
       fetchLatest: async () => ({
+        repository: "bytepioneer-ai/codex-host",
         version: "1.2.3",
         releaseNotes: "Release 1.2.3",
         releaseNotesUrl: "https://github.com/BytePioneer-AI/codex-host/releases/tag/v1.2.3",

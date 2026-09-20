@@ -19,6 +19,7 @@ use sha2::{Digest, Sha256};
 use crate::request::validate_version;
 use crate::request::{
     Installation, MacOsInstallation, NpmInstallation, UpdateRequest, WindowsInstallation,
+    valid_release_repository,
 };
 #[cfg(target_os = "macos")]
 use crate::status::unix_seconds;
@@ -35,6 +36,13 @@ struct DistributionMetadata {
     version: String,
     distribution: String,
     target: String,
+    #[serde(default = "default_release_repository")]
+    release_repository: String,
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn default_release_repository() -> String {
+    "bytepioneer-ai/codex-host".into()
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -70,7 +78,10 @@ fn verify_artifact(path: &Path, expected: &str) -> Result<(), Box<dyn Error>> {
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 fn distribution_metadata(path: &Path) -> Result<DistributionMetadata, Box<dyn Error>> {
     let metadata = serde_json::from_slice::<DistributionMetadata>(&fs::read(path)?)?;
-    if metadata.schema_version != 1 || metadata.target.is_empty() {
+    if metadata.schema_version != 1
+        || metadata.target.is_empty()
+        || !valid_release_repository(&metadata.release_repository)
+    {
         return Err("installed distribution metadata is invalid".into());
     }
     validate_version(&metadata.version)?;
@@ -82,15 +93,35 @@ fn verify_distribution(
     path: &Path,
     version: &str,
     expected_distribution: &str,
+    expected_release_repository: &str,
 ) -> Result<(), Box<dyn Error>> {
     let metadata = distribution_metadata(path)?;
-    if metadata.version != version || metadata.distribution != expected_distribution {
+    if !distribution_matches(
+        &metadata,
+        version,
+        expected_distribution,
+        expected_release_repository,
+    ) {
         return Err(format!(
-            "installed distribution metadata does not match {expected_distribution} {version}"
+            "installed distribution metadata does not match {expected_distribution} {version} from {expected_release_repository}"
         )
         .into());
     }
     Ok(())
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn distribution_matches(
+    metadata: &DistributionMetadata,
+    version: &str,
+    expected_distribution: &str,
+    expected_release_repository: &str,
+) -> bool {
+    metadata.version == version
+        && metadata.distribution == expected_distribution
+        && metadata
+            .release_repository
+            .eq_ignore_ascii_case(expected_release_repository)
 }
 
 fn run_checked(command: &mut Command, label: &str) -> Result<(), Box<dyn Error>> {
@@ -125,6 +156,7 @@ fn install_windows(
         &windows.install_root.join("app").join(DISTRIBUTION_FILE),
         &request.version,
         "installer",
+        &windows.release_repository,
     )
 }
 
@@ -180,6 +212,7 @@ fn install_macos(request: &UpdateRequest, macos: &MacOsInstallation) -> Result<(
                 .join(DISTRIBUTION_FILE),
             &request.version,
             "installer",
+            &macos.release_repository,
         )?;
         run_checked(
             Command::new("/usr/bin/codesign")
@@ -213,6 +246,7 @@ fn install_macos(request: &UpdateRequest, macos: &MacOsInstallation) -> Result<(
             .join(DISTRIBUTION_FILE),
         &request.version,
         "installer",
+        &macos.release_repository,
     ) {
         let _ = fs::remove_dir_all(&macos.app_path);
         let _ = fs::rename(&backup, &macos.app_path);
@@ -266,11 +300,40 @@ pub(crate) fn relaunch(request: &UpdateRequest) -> Result<(), Box<dyn Error>> {
 
 #[cfg(all(test, any(target_os = "windows", target_os = "macos")))]
 mod tests {
-    use super::DistributionMetadata;
+    use super::{DistributionMetadata, distribution_matches};
 
     #[test]
     fn distribution_metadata_rejects_unknown_fields() {
         let metadata = br#"{"schemaVersion":1,"version":"1.2.3","distribution":"npm","target":"macos-arm64","extra":true}"#;
         assert!(serde_json::from_slice::<DistributionMetadata>(metadata).is_err());
+    }
+
+    #[test]
+    fn legacy_distribution_metadata_defaults_to_the_upstream_repository() {
+        let metadata = serde_json::from_slice::<DistributionMetadata>(
+            br#"{"schemaVersion":1,"version":"1.2.3","distribution":"installer","target":"macos-arm64"}"#,
+        )
+        .expect("valid legacy distribution metadata");
+        assert_eq!(metadata.release_repository, "bytepioneer-ai/codex-host");
+    }
+
+    #[test]
+    fn distribution_identity_includes_the_release_repository() {
+        let metadata = serde_json::from_slice::<DistributionMetadata>(
+            br#"{"schemaVersion":1,"version":"1.2.3","distribution":"installer","target":"macos-arm64","releaseRepository":"lijingboquiet/codex-host"}"#,
+        )
+        .expect("valid distribution metadata");
+        assert!(distribution_matches(
+            &metadata,
+            "1.2.3",
+            "installer",
+            "LijingboQuiet/codex-host",
+        ));
+        assert!(!distribution_matches(
+            &metadata,
+            "1.2.3",
+            "installer",
+            "bytepioneer-ai/codex-host",
+        ));
     }
 }

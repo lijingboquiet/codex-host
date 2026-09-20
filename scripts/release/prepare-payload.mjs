@@ -3,7 +3,10 @@ import { chmod, copyFile, lstat, mkdir, readFile, readdir, rm, writeFile } from 
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { writeDistributionMetadata } from "./distribution-metadata.mjs";
+import {
+  releaseRepositoryFromEnvironment,
+  writeDistributionMetadata,
+} from "./distribution-metadata.mjs";
 import {
   buildPreinstalledHarnessPlugins,
   preinstalledHarnessPluginPaths,
@@ -408,6 +411,7 @@ export async function prepareReleasePayload({ target, root = repositoryRoot }) {
     version,
     distribution: "installer",
     target: target.id,
+    releaseRepository: releaseRepositoryFromEnvironment(),
   });
 
   const archivePath = await ensureNodeArchive({

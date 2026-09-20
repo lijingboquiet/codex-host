@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createDistributionMetadata,
+  releaseRepositoryFromEnvironment,
   writeDistributionMetadata,
 } from "../../scripts/release/distribution-metadata.mjs";
 
@@ -16,12 +17,14 @@ describe("release distribution metadata", () => {
         version: "1.2.3-test.4",
         distribution: "npm",
         target: "windows-arm64",
+        releaseRepository: "LijingboQuiet/codex-host",
       }),
     ).toEqual({
       schemaVersion: 1,
       version: "1.2.3-test.4",
       distribution: "npm",
       target: "windows-arm64",
+      releaseRepository: "lijingboquiet/codex-host",
     });
 
     const root = await mkdtemp(path.join(os.tmpdir(), "codexhost-distribution-"));
@@ -31,12 +34,14 @@ describe("release distribution metadata", () => {
         version: "1.2.3",
         distribution: "installer",
         target: "macos-arm64",
+        releaseRepository: "lijingboquiet/codex-host",
       });
       expect(JSON.parse(await readFile(output, "utf8"))).toEqual({
         schemaVersion: 1,
         version: "1.2.3",
         distribution: "installer",
         target: "macos-arm64",
+        releaseRepository: "lijingboquiet/codex-host",
       });
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -44,6 +49,9 @@ describe("release distribution metadata", () => {
   });
 
   it("rejects malformed release metadata", () => {
+    expect(releaseRepositoryFromEnvironment({ GITHUB_REPOSITORY: "Owner/Repo" })).toBe(
+      "owner/repo",
+    );
     expect(() =>
       createDistributionMetadata({
         version: "latest",
@@ -72,5 +80,13 @@ describe("release distribution metadata", () => {
         target: "linux-arm64",
       }),
     ).toMatchObject({ target: "linux-arm64" });
+    expect(() =>
+      createDistributionMetadata({
+        version: "1.2.3",
+        distribution: "npm",
+        target: "linux-arm64",
+        releaseRepository: "https://github.com/owner/repo",
+      }),
+    ).toThrow("owner/name slug");
   });
 });

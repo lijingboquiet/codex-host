@@ -30,6 +30,7 @@ export interface PreparedUpdateInfo {
 
 export interface CommonUpdateOptions {
   version: string;
+  releaseRepository: string;
   launcherPid: number;
   launcherExecutable: string;
   runtimeDescriptorPath: string;
@@ -105,12 +106,14 @@ interface InternalRequest {
         installer_path: string;
         artifact_sha256: string;
         install_root: string;
+        release_repository: string;
       }
     | {
         kind: "macos-dmg";
         dmg_path: string;
         artifact_sha256: string;
         app_path: string;
+        release_repository: string;
       };
 }
 
@@ -436,6 +439,7 @@ export function createBackgroundUpdateManager(
           installer_path: artifact.artifactPath,
           artifact_sha256: artifact.source.sha256,
           install_root: requireAbsolutePath(options.installRoot, "Windows install root"),
+          release_repository: options.releaseRepository,
         },
         artifact.artifactPath,
       );
@@ -456,6 +460,7 @@ export function createBackgroundUpdateManager(
           dmg_path: artifact.artifactPath,
           artifact_sha256: artifact.source.sha256,
           app_path: appPath,
+          release_repository: options.releaseRepository,
         },
         artifact.artifactPath,
       );

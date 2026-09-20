@@ -36,6 +36,7 @@ function release(overrides: Record<string, unknown> = {}) {
 describe("GitHub Release update discovery", () => {
   it("parses the public latest response and selects one exact target asset", () => {
     const parsed = parseLatestGitHubRelease(release());
+    expect(parsed.repository).toBe("bytepioneer-ai/codex-host");
     expect(parsed.version).toBe("1.2.3");
     expect(parsed.releaseNotes).toBe("## Changes\n\n- Safer updates");
     expect(selectInstallerReleaseArtifact(parsed, "windows-x64")).toEqual({
@@ -114,6 +115,34 @@ describe("GitHub Release update discovery", () => {
     );
   });
 
+  it("uses one explicit fork for API, notes, and installer URLs", async () => {
+    const repository = "lijingboquiet/codex-host";
+    const forkRelease = release({
+      html_url: "https://github.com/lijingboquiet/codex-host/releases/tag/v1.2.3",
+      assets: [
+        {
+          name: "codexhost-1.2.3-windows-x64.exe",
+          size: 42,
+          digest: `sha256:${"ab".repeat(32)}`,
+          browser_download_url:
+            "https://github.com/lijingboquiet/codex-host/releases/download/v1.2.3/codexhost-1.2.3-windows-x64.exe",
+        },
+      ],
+    });
+    const fetchImpl = vi.fn<typeof fetch>(
+      async () => new Response(JSON.stringify(forkRelease), { status: 200 }),
+    );
+    const parsed = await fetchLatestGitHubRelease({ fetch: fetchImpl, repository });
+    expect(fetchImpl.mock.calls[0]?.[0]).toBe(
+      "https://api.github.com/repos/lijingboquiet/codex-host/releases/latest",
+    );
+    expect(parsed.repository).toBe(repository);
+    expect(selectInstallerReleaseArtifact(parsed, "windows-x64").source.url).toContain(
+      "github.com/lijingboquiet/codex-host/releases/download/",
+    );
+    expect(() => parseLatestGitHubRelease(forkRelease)).toThrow("does not match");
+  });
+
   it("uses the authenticated GitHub CLI without exposing its token", async () => {
     const run = vi.fn(async () => JSON.stringify(release()));
     await expect(
@@ -135,10 +164,29 @@ describe("GitHub Release update discovery", () => {
         "Accept: application/vnd.github+json",
         "--header",
         "X-GitHub-Api-Version: 2022-11-28",
-        "repos/BytePioneer-AI/codex-host/releases/latest",
+        "repos/bytepioneer-ai/codex-host/releases/latest",
       ],
       { environment: { PATH: "/usr/bin:/bin" } },
     );
+  });
+
+  it("passes an explicit fork to the authenticated GitHub CLI", async () => {
+    const run = vi.fn<GitHubCliRunner>(async () =>
+      JSON.stringify(
+        release({
+          html_url: "https://github.com/lijingboquiet/codex-host/releases/tag/v1.2.3",
+          assets: [],
+        }),
+      ),
+    );
+    await expect(
+      fetchLatestGitHubReleaseWithGitHubCli({
+        executableCandidates: ["gh"],
+        repository: "lijingboquiet/codex-host",
+        run,
+      }),
+    ).resolves.toMatchObject({ repository: "lijingboquiet/codex-host" });
+    expect(run.mock.calls[0]?.[1]).toContain("repos/lijingboquiet/codex-host/releases/latest");
   });
 
   it("falls back cleanly when GitHub CLI is unavailable", async () => {

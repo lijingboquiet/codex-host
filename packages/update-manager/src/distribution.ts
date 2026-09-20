@@ -8,7 +8,11 @@ import type {
   WindowsInstallerUpdateOptions,
 } from "./update-manager.js";
 import { requireSemanticVersion } from "./status.js";
-import type { ReleaseTarget } from "./github-release.js";
+import {
+  DEFAULT_CODEXHOST_RELEASE_REPOSITORY,
+  requireGitHubRepository,
+  type ReleaseTarget,
+} from "./github-release.js";
 
 export const UPDATE_RUNTIME_ENV = Object.freeze({
   launcherPid: "CODEXHOST_LAUNCHER_PID",
@@ -27,6 +31,7 @@ export interface DistributionMetadata {
   version: string;
   distribution: "npm" | "installer";
   target: ReleaseTarget;
+  releaseRepository: string;
 }
 
 export interface InstalledUpdateContext {
@@ -56,7 +61,7 @@ function object(value: unknown, label: string): Record<string, unknown> {
 
 export function parseDistributionMetadata(value: unknown): DistributionMetadata {
   const metadata = object(value, "distribution metadata");
-  const allowed = ["distribution", "schemaVersion", "target", "version"];
+  const allowed = ["distribution", "releaseRepository", "schemaVersion", "target", "version"];
   if (Object.keys(metadata).some((key) => !allowed.includes(key))) {
     throw new Error("distribution metadata contains unknown fields");
   }
@@ -71,7 +76,8 @@ export function parseDistributionMetadata(value: unknown): DistributionMetadata 
       "linux-x64",
       "linux-arm64",
     ].includes(String(metadata.target)) ||
-    typeof metadata.version !== "string"
+    typeof metadata.version !== "string" ||
+    (metadata.releaseRepository !== undefined && typeof metadata.releaseRepository !== "string")
   ) {
     throw new Error("distribution metadata is invalid");
   }
@@ -80,6 +86,11 @@ export function parseDistributionMetadata(value: unknown): DistributionMetadata 
     version: requireSemanticVersion(metadata.version),
     distribution: metadata.distribution,
     target: metadata.target as ReleaseTarget,
+    releaseRepository: requireGitHubRepository(
+      metadata.releaseRepository === undefined
+        ? DEFAULT_CODEXHOST_RELEASE_REPOSITORY
+        : metadata.releaseRepository,
+    ),
   };
 }
 
@@ -165,6 +176,7 @@ export async function resolveInstalledUpdateContext(
   );
   const common = {
     version: metadata.version,
+    releaseRepository: metadata.releaseRepository,
     launcherPid,
     launcherExecutable,
     runtimeDescriptorPath,

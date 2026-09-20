@@ -83,6 +83,8 @@ npm run test:typescript -- --exclude 'packages/repository-automation/test/**'
 
 `release-packages.yml` 的发布校验继续保留，不属于 PR 评论功能：
 
+发行构建会把 GitHub Actions 的 `GITHUB_REPOSITORY` 写入 `codexhost-distribution.json` 作为更新源。本地 `npm run install:local` 则从 GitHub `origin` 推导该值，也可用 `CODEXHOST_RELEASE_REPOSITORY=owner/name` 覆盖。运行时只查询该仓库的 latest Release；安装器必须继续声明相同来源，macOS 会在替换现有 App 前校验。没有该字段的旧包兼容为 `bytepioneer-ai/codex-host`。
+
 1. 标签必须是合法 SemVer 的 annotated tag，正文包含 Release Notes；提交在 `main` 历史上。
 2. `package.json`、`package-lock.json` 根版本及 Cargo workspace 版本必须与标签一致。
 3. 确切发布 SHA 的主仓库 `main push` CI 和四项基线 job 必须成功。

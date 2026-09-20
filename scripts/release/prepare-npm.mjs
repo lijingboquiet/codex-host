@@ -13,7 +13,10 @@ import {
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { writeDistributionMetadata } from "./distribution-metadata.mjs";
+import {
+  releaseRepositoryFromEnvironment,
+  writeDistributionMetadata,
+} from "./distribution-metadata.mjs";
 import {
   buildPreinstalledHarnessPlugins,
   preinstalledHarnessPluginPaths,
@@ -1036,6 +1039,7 @@ export async function prepareNpmPackage({
     version: packageVersion,
     distribution: "npm",
     target: target.id,
+    releaseRepository: releaseRepositoryFromEnvironment(),
   });
 
   await writeFile(
