@@ -3538,6 +3538,10 @@ describe("Claude Code HarnessAdapter", () => {
       },
     });
     expect(await nextEvent(iterator)).toMatchObject({
+      type: "session.state.changed",
+      state: { resolvedModelLabel: "claude-sonnet-4-6" },
+    });
+    expect(await nextEvent(iterator)).toMatchObject({
       type: "session.usage.changed",
       usage: { cacheHitRatePercent: 70, inputTokens: 100, outputTokens: 5 },
     });
@@ -3589,6 +3593,10 @@ describe("Claude Code HarnessAdapter", () => {
       type: "message.completed",
       messageId: "assistant-1",
       lastRequestUsage: request,
+    });
+    expect(await nextEvent(iterator)).toMatchObject({
+      type: "session.state.changed",
+      state: { resolvedModelLabel: "claude-sonnet-4-6" },
     });
     const estimate = await nextEvent(iterator);
     expect(estimate).toMatchObject({
@@ -3705,6 +3713,10 @@ describe("Claude Code HarnessAdapter", () => {
 
     await session.refreshUsage?.();
     expect(transport.getContextUsage).toHaveBeenCalledOnce();
+    expect(await nextEvent(iterator)).toMatchObject({
+      type: "session.state.changed",
+      state: { effectiveModel: CLAUDE_DEFAULT_MODEL_REF, resolvedModelLabel: "runtime-default" },
+    });
     expect(await nextEvent(iterator)).toEqual({
       type: "session.usage.changed",
       observedForTurnId: "exact-context",
@@ -3717,6 +3729,144 @@ describe("Claude Code HarnessAdapter", () => {
     for (;;) {
       if ((await nextEvent(iterator)).type === "turn.completed") break;
     }
+    await session.close();
+  });
+
+  it("surfaces the runtime-resolved Model behind Default and clears it on Model switch", async () => {
+    const { adapter, transports } = fixture();
+    const session = await openSession(adapter);
+    const iterator = session.outputs[Symbol.asyncIterator]();
+
+    await session.execute(textTurn("resolved-default"));
+    await nextEvent(iterator);
+    await nextEvent(iterator);
+    await nextEvent(iterator);
+    const transport = transports[0];
+    if (!transport) throw new Error("Fake Claude transport was not created");
+
+    // The CLI resolves "Default" to the settings model; the context readback is
+    // the authoritative evidence of the model actually in use.
+    transport.contextUsage = {
+      usedTokens: 40,
+      maxTokens: 200,
+      model: "model_hub/es1_orange_o48",
+    };
+    await session.refreshUsage?.();
+    expect(await nextEvent(iterator)).toMatchObject({
+      type: "session.state.changed",
+      state: {
+        effectiveModel: CLAUDE_DEFAULT_MODEL_REF,
+        resolvedModelLabel: "model_hub/es1_orange_o48",
+      },
+    });
+    expect(await nextEvent(iterator)).toMatchObject({
+      type: "session.usage.changed",
+      usage: { contextUsedTokens: 40, contextWindowTokens: 200 },
+    });
+
+    // A stable readback must not re-publish the same resolved label.
+    transport.finish({ status: "succeeded" });
+    for (;;) if ((await nextEvent(iterator)).type === "turn.completed") break;
+
+    // Switching Models drops the stale resolution so the UI never shows the
+    // previous model until the next readback confirms the new one.
+    const alias = encodeClaudeModelRef("sonnet");
+    const selecting = session.execute({ type: "model.select", model: alias });
+    const switched = await nextEvent(iterator);
+    expect(switched).toMatchObject({
+      type: "session.state.changed",
+      state: { effectiveModel: alias },
+    });
+    expect(switched).not.toHaveProperty("state.resolvedModelLabel");
+    await expect(selecting).resolves.toEqual({ ok: true, value: { completed: true } });
+    await session.close();
+  });
+
+  it("surfaces the resolved Model from the normal message flow without a Usage refresh", async () => {
+    const { adapter, transports } = fixture();
+    const session = await openSession(adapter);
+    const iterator = session.outputs[Symbol.asyncIterator]();
+
+    await session.execute(textTurn("normal-flow"));
+    await nextEvent(iterator); // session.state.changed (initial configured state)
+    await nextEvent(iterator); // turn.started
+    await nextEvent(iterator); // item.started
+    const transport = transports[0];
+    if (!transport) throw new Error("Fake Claude transport was not created");
+    transport.delta("hi");
+    expect(await nextEvent(iterator)).toMatchObject({ type: "item.updated" });
+
+    // The root message names the Model the CLI actually ran; the label must update
+    // from this alone, with no popover open and no context RPC.
+    transport.event({
+      type: "message.completed",
+      messageId: "synthetic-assistant",
+      lastRequestUsage: {
+        model: "model_hub/es1_orange_o48",
+        inputTokens: 12,
+        outputTokens: 4,
+        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: 0,
+      },
+    });
+    expect(await nextEvent(iterator)).toMatchObject({
+      type: "session.state.changed",
+      state: {
+        effectiveModel: CLAUDE_DEFAULT_MODEL_REF,
+        resolvedModelLabel: "model_hub/es1_orange_o48",
+      },
+    });
+    expect(await nextEvent(iterator)).toMatchObject({ type: "session.usage.changed" });
+    expect(transport.getContextUsage).not.toHaveBeenCalled();
+
+    transport.finish({ status: "succeeded" });
+    for (;;) if ((await nextEvent(iterator)).type === "turn.completed") break;
+    await session.close();
+  });
+
+  it("does not restore the previous Model's label from a late message after a switch", async () => {
+    const { adapter, transports } = fixture();
+    const session = await openSession(adapter);
+    const iterator = session.outputs[Symbol.asyncIterator]();
+
+    await session.execute(textTurn("switch-race"));
+    await nextEvent(iterator);
+    await nextEvent(iterator);
+    await nextEvent(iterator);
+    const transport = transports[0];
+    if (!transport) throw new Error("Fake Claude transport was not created");
+
+    // Confirm a switch to an explicit alias while the Turn is still open.
+    const alias = encodeClaudeModelRef("sonnet");
+    const selecting = session.execute({ type: "model.select", model: alias });
+    expect(await nextEvent(iterator)).toMatchObject({
+      type: "session.state.changed",
+      state: { effectiveModel: alias },
+    });
+    await expect(selecting).resolves.toEqual({ ok: true, value: { completed: true } });
+
+    // A late root message from the previous Model must not restore its label.
+    const stateEvents: string[] = [];
+    transport.event({
+      type: "message.completed",
+      messageId: "synthetic-assistant",
+      lastRequestUsage: {
+        model: "model_hub/es1_orange_o48",
+        inputTokens: 8,
+        outputTokens: 2,
+        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: 0,
+      },
+    });
+    transport.finish({ status: "succeeded" });
+    for (;;) {
+      const event = await nextEvent(iterator);
+      if (event.type === "session.state.changed") {
+        stateEvents.push(JSON.stringify(event.state));
+      }
+      if (event.type === "turn.completed") break;
+    }
+    expect(stateEvents.every((state) => !state.includes("resolvedModelLabel"))).toBe(true);
     await session.close();
   });
 
@@ -3744,7 +3894,15 @@ describe("Claude Code HarnessAdapter", () => {
     expect(transportA.getContextUsage).toHaveBeenCalledOnce();
     expect(transportB.getContextUsage).toHaveBeenCalledOnce();
     expect(await nextEvent(iteratorA)).toMatchObject({
+      type: "session.state.changed",
+      state: { resolvedModelLabel: "a" },
+    });
+    expect(await nextEvent(iteratorA)).toMatchObject({
       usage: { contextUsedTokens: 30, contextWindowTokens: 100 },
+    });
+    expect(await nextEvent(iteratorB)).toMatchObject({
+      type: "session.state.changed",
+      state: { resolvedModelLabel: "b" },
     });
     expect(await nextEvent(iteratorB)).toMatchObject({
       usage: { contextUsedTokens: 90, contextWindowTokens: 200 },
@@ -3855,6 +4013,10 @@ describe("Claude Code HarnessAdapter", () => {
         },
       });
       await vi.advanceTimersByTimeAsync(100);
+      expect(await nextEvent(iterator)).toMatchObject({
+        type: "session.state.changed",
+        state: { resolvedModelLabel: "claude-sonnet-4-6" },
+      });
       expect(await nextEvent(iterator)).toMatchObject({
         type: "session.usage.changed",
         usage: { cacheHitRatePercent: 70, inputTokens: 100, outputTokens: 2 },

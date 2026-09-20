@@ -70,7 +70,14 @@ describe.each([DEEPSEEK_V012_PROFILE, DEEPSEEK_V015_PROFILE])(
           type: "finish",
           reason: {
             kind: "error",
-            failure: { code: "RETRY", message: "failed", providerRetryAfterMs: 1.5 },
+            failure: { code: "RETRY", message: "failed", providerRetryAfterMs: 0 },
+          },
+        },
+        {
+          type: "finish",
+          reason: {
+            kind: "error",
+            failure: { code: "RETRY", message: "failed", providerRetryAfterMs: -1.5 },
           },
         },
         {
@@ -106,6 +113,13 @@ describe.each([DEEPSEEK_V012_PROFILE, DEEPSEEK_V015_PROFILE])(
             },
           },
           replayState: { safe: true },
+        },
+        {
+          type: "finish",
+          reason: {
+            kind: "error",
+            failure: { code: "RETRY", message: "slow down", providerRetryAfterMs: 1.5 },
+          },
         },
       ])
         expect(() => profile.validateChunk(chunk)).not.toThrow();

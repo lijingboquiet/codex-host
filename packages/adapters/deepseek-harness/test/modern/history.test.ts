@@ -519,6 +519,71 @@ describe("DeepSeek Harness Modern history projection", () => {
     );
   });
 
+  function retryEvent(overrides: Record<string, unknown>): ModernJournalEvent {
+    return event(0, "llm/retry", {
+      retryId: "retry-1",
+      turn: 1,
+      step: 1,
+      provider: "deepseek",
+      mode: "always",
+      policyKey: "default",
+      retry: 1,
+      delayMs: 1,
+      failure: { message: "failed", code: "FAIL" },
+      ...overrides,
+    });
+  }
+
+  const MAX_TIMER_DELAY_MS = 2_147_483_647;
+
+  it.each([
+    ["zero", 0],
+    ["fractional", 1234.56],
+    ["max timer delay", MAX_TIMER_DELAY_MS],
+  ])("accepts llm/retry delayMs %s at the native boundary", (_label, delayMs) => {
+    expect(() =>
+      projectModernHistory({ sessionId: SESSION_ID, events: [retryEvent({ delayMs })] }),
+    ).not.toThrow();
+  });
+
+  it.each([
+    ["negative", -1],
+    ["above max timer delay", MAX_TIMER_DELAY_MS + 1],
+    ["infinite", Number.POSITIVE_INFINITY],
+    ["NaN", Number.NaN],
+    ["non-number", "1"],
+  ])("refuses llm/retry delayMs %s outside the native boundary", (_label, delayMs) => {
+    expect(() =>
+      projectModernHistory({ sessionId: SESSION_ID, events: [retryEvent({ delayMs })] }),
+    ).toThrowError(ModernHistoryError);
+  });
+
+  it.each([
+    ["fractional", 1.5],
+    ["large integer", MAX_TIMER_DELAY_MS + 10],
+  ])("accepts llm/retry failure providerRetryAfterMs %s", (_label, providerRetryAfterMs) => {
+    expect(() =>
+      projectModernHistory({
+        sessionId: SESSION_ID,
+        events: [retryEvent({ failure: { message: "slow", code: "RETRY", providerRetryAfterMs } })],
+      }),
+    ).not.toThrow();
+  });
+
+  it.each([
+    ["zero", 0],
+    ["negative", -1.5],
+    ["infinite", Number.POSITIVE_INFINITY],
+    ["non-number", "5"],
+  ])("refuses llm/retry failure providerRetryAfterMs %s", (_label, providerRetryAfterMs) => {
+    expect(() =>
+      projectModernHistory({
+        sessionId: SESSION_ID,
+        events: [retryEvent({ failure: { message: "slow", code: "RETRY", providerRetryAfterMs } })],
+      }),
+    ).toThrowError(ModernHistoryError);
+  });
+
   it("accepts canonical delegated sandbox and approval sources", () => {
     expect(() =>
       projectModernHistory({

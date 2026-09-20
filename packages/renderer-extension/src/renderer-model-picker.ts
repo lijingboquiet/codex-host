@@ -208,6 +208,21 @@ export function rendererModelPickerPresentation(
   };
 }
 
+/**
+ * Compose the trigger's secondary line. The runtime-resolved model (e.g. the
+ * model behind "Default") and the selected Thinking option are independent
+ * facts, so show both when present rather than letting one hide the other. The
+ * resolved model leads because it answers "which model am I actually using".
+ */
+export function rendererModelSecondaryLabel(
+  presentation: RendererModelPickerPresentation,
+): string | undefined {
+  const parts = [presentation.resolvedModelLabel, presentation.thinkingLabel].filter(
+    (part): part is string => part !== undefined,
+  );
+  return parts.length > 0 ? parts.join(" · ") : undefined;
+}
+
 function positionMainMenu(control: RendererModelPickerControl): void {
   const triggerRect = control.trigger.getBoundingClientRect();
   const placement = rendererModelPickerMainMenuPlacement(
@@ -774,11 +789,18 @@ export function renderRendererModelPicker(
 
   syncRendererLabelText(control.label, presentation.modelLabel);
   control.label.title = presentation.modelLabel;
-  const secondaryLabel = presentation.thinkingLabel ?? presentation.resolvedModelLabel;
-  syncRendererLabelText(control.thinkingLabel, secondaryLabel ?? "");
-  control.thinkingLabel.hidden = secondaryLabel === undefined;
-  const accessibleLabel = secondaryLabel
-    ? `${presentation.modelLabel}, ${secondaryLabel}`
+  // The trigger's secondary span is width-capped, so keep the short Thinking
+  // label (e.g. "Extra High") visible inline and never let a long resolved Model
+  // clip it. The runtime-resolved Model stays fully inspectable through the
+  // complete title/aria below. When Thinking is unavailable, the resolved Model
+  // takes the inline slot instead.
+  const inlineSecondary = presentation.thinkingLabel ?? presentation.resolvedModelLabel;
+  const fullSecondary = rendererModelSecondaryLabel(presentation);
+  syncRendererLabelText(control.thinkingLabel, inlineSecondary ?? "");
+  control.thinkingLabel.hidden = inlineSecondary === undefined;
+  control.thinkingLabel.title = fullSecondary ?? "";
+  const accessibleLabel = fullSecondary
+    ? `${presentation.modelLabel}, ${fullSecondary}`
     : presentation.modelLabel;
   control.trigger.title = view.error ?? accessibleLabel;
   control.trigger.setAttribute("aria-label", `Model: ${accessibleLabel}`);

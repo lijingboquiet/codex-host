@@ -56,6 +56,7 @@ import {
 import {
   harnessCommandCatalogSchema,
   harnessIdSchema,
+  HARNESS_MODEL_LABEL_MAX_LENGTH,
   hostInteractionIdSchema,
   hostItemIdSchema,
   hostTurnIdSchema,
@@ -186,6 +187,13 @@ interface ActiveTurn {
   estimatedCostAvailable: boolean;
   usageTokensCalibrated: boolean;
   usageCostCalibrated: boolean;
+  /**
+   * The Model-selection revision this Turn was started under. A late root
+   * message that lands after a successful Model switch must not restore the
+   * previous Model's resolved label, so its usage is trusted for the label only
+   * while this stamp still matches the current revision.
+   */
+  modelSelectionRevision: number;
   held: boolean;
   /** True while Claude can still produce a native result for the current Root Segment. */
   rootSegmentActive: boolean;
@@ -517,6 +525,7 @@ class ClaudeHarnessSession implements HarnessSession {
   #startupTask: Promise<ClaudeTurnTransport> | null = null;
   readonly #randomUUID: () => string;
   #requestedModel: HarnessModelRef | undefined;
+  #resolvedModelLabel: string | undefined;
   #requestedPermissionModeId: HarnessPermissionModeId;
   #requestedThinkingOptionId: HarnessThinkingOptionId;
   readonly #readSessionMessages: ClaudeAdapterDependencies["readSessionMessages"];
@@ -536,6 +545,7 @@ class ClaudeHarnessSession implements HarnessSession {
   #transport: ClaudeTurnTransport | null = null;
   #hardCancelTask: Promise<void> | null = null;
   #usageGeneration = 0;
+  #modelSelectionRevision = 0;
   #latestUsage: HostUsage | null = null;
   #minimumContextUsedTokens: number | null = null;
   #calibratedInputTokens = 0;
@@ -834,6 +844,7 @@ class ClaudeHarnessSession implements HarnessSession {
       estimatedCostAvailable: false,
       usageTokensCalibrated: false,
       usageCostCalibrated: false,
+      modelSelectionRevision: this.#modelSelectionRevision,
       held: false,
       rootSegmentActive: true,
       completion,
@@ -947,6 +958,7 @@ class ClaudeHarnessSession implements HarnessSession {
       estimatedCostAvailable: false,
       usageTokensCalibrated: false,
       usageCostCalibrated: false,
+      modelSelectionRevision: this.#modelSelectionRevision,
       held: false,
       rootSegmentActive: true,
       completion,
@@ -1057,6 +1069,11 @@ class ClaudeHarnessSession implements HarnessSession {
         }
       }
       this.#requestedModel = command.model;
+      // A confirmed Model switch invalidates any resolved label from the previous
+      // Model. Bump the revision so a late root message from the old Model cannot
+      // restore its label, and drop the stale value until the new Model confirms.
+      this.#modelSelectionRevision += 1;
+      this.#resolvedModelLabel = undefined;
       const persistenceError = await this.#savePendingConfiguration();
       if (persistenceError) return { ok: false, error: persistenceError };
       this.#publishState(this.#configuredState());
@@ -1486,6 +1503,19 @@ class ClaudeHarnessSession implements HarnessSession {
     }
   }
 
+  /**
+   * The runtime's context readback reports the model the CLI actually resolved
+   * (a settings default, an alias target, or a relayed model). Surface it as the
+   * Session's resolved label so Host can show the real model behind "Default",
+   * and re-publish only when it changes to avoid redundant empty refreshes.
+   */
+  #observeResolvedModelLabel(model: string): void {
+    const label = model.trim().slice(0, HARNESS_MODEL_LABEL_MAX_LENGTH);
+    if (label.length === 0 || label === this.#resolvedModelLabel) return;
+    this.#resolvedModelLabel = label;
+    if (this.#phase === "open") this.#publishState(this.#configuredState());
+  }
+
   #configuredState(nativeReady = this.#state.nativeRef !== undefined): HarnessSessionState {
     const effectiveModel =
       this.#requestedModel ??
@@ -1493,6 +1523,7 @@ class ClaudeHarnessSession implements HarnessSession {
     return {
       ...(nativeReady ? { nativeRef: this.#nativeRef } : {}),
       ...(effectiveModel ? { effectiveModel } : {}),
+      ...(this.#resolvedModelLabel ? { resolvedModelLabel: this.#resolvedModelLabel } : {}),
       effectiveThinkingOptionId: this.#requestedThinkingOptionId,
       availableThinkingOptions: [...CLAUDE_THINKING_OPTIONS],
       effectivePermissionModeId: this.#requestedPermissionModeId,
@@ -1939,6 +1970,7 @@ class ClaudeHarnessSession implements HarnessSession {
       estimatedCostAvailable: false,
       usageTokensCalibrated: false,
       usageCostCalibrated: false,
+      modelSelectionRevision: this.#modelSelectionRevision,
       held: false,
       rootSegmentActive: true,
       completion,
@@ -2052,6 +2084,7 @@ class ClaudeHarnessSession implements HarnessSession {
         if (context === null) continue;
         this.#contextUsageFreshUntilMs = Date.now() + CONTEXT_USAGE_TTL_MS;
         this.#contextUsageCooldownUntilMs = 0;
+        this.#observeResolvedModelLabel(context.model);
         this.#mergeAndPublishUsage(
           {
             contextUsedTokens: Math.max(context.usedTokens, this.#minimumContextUsedTokens ?? 0),
@@ -2132,6 +2165,13 @@ class ClaudeHarnessSession implements HarnessSession {
     const requestId = usage.requestId ?? `${active.nativeTurnKey}:${usage.model ?? "unknown"}`;
     if (active.usageRequestIds.has(requestId)) return;
     active.usageRequestIds.add(requestId);
+    // The root request usage names the Model the CLI actually ran (settings
+    // default, alias target, or relayed Model). Surface it on the normal message
+    // flow — no popover or extra RPC — but only while this Turn's Model selection
+    // is still current, so a switch is never overwritten by a stale message.
+    if (usage.model && active.modelSelectionRevision === this.#modelSelectionRevision) {
+      this.#observeResolvedModelLabel(usage.model);
+    }
     active.estimatedInputTokens +=
       usage.inputTokens + usage.cacheCreationInputTokens + usage.cacheReadInputTokens;
     active.estimatedOutputTokens += usage.outputTokens;

@@ -43,6 +43,7 @@ import {
   ModernHarnessSession,
   type ModernSessionControl,
 } from "../../src/modern/session.js";
+import { ModernEventValidator } from "../../src/modern/history.js";
 
 const SESSION_ID = "modern-session";
 const MODEL_CATALOG = parseModernModelCatalog({
@@ -575,9 +576,12 @@ async function waitForGraceTimer(): Promise<void> {
 }
 
 describe("DeepSeek Harness Modern Session", () => {
-  it.each(["status", "providerRetryAfterMs"])(
+  it.each([
+    ["status", 1.5],
+    ["providerRetryAfterMs", 0],
+  ] as const)(
     "does not reconnect when a V3 finish contains an invalid %s",
-    async (field) => {
+    async (field, invalidValue) => {
       const follow = new EventFeed();
       follow.push({
         type: "snapshot",
@@ -628,7 +632,7 @@ describe("DeepSeek Harness Modern Session", () => {
               type: "finish",
               reason: {
                 kind: "error",
-                failure: { message: "fixture", code: "fixture", [field]: 1.5 },
+                failure: { message: "fixture", code: "fixture", [field]: invalidValue },
               },
             },
           },
@@ -877,6 +881,110 @@ describe("DeepSeek Harness Modern Session", () => {
     });
     await test.session.close();
   });
+
+  it.each([
+    ["V012", DEEPSEEK_V012_PROFILE],
+    ["V015", DEEPSEEK_V015_PROFILE],
+  ] as const)(
+    "continues a live %s turn to success after a fractional-delay llm/retry",
+    async (_label, profile) => {
+      const test = setup(
+        [() => accepted()],
+        [],
+        ["request-1"],
+        5_000,
+        null,
+        undefined,
+        MODERN_ACCEPTED_CORRELATION_TIMEOUT_MS,
+        [],
+        profile,
+      );
+      const outputs = test.session.outputs[Symbol.asyncIterator]();
+      const id = turnId("host-turn-1");
+      await expect(
+        test.session.execute({
+          type: "turn.start",
+          turnId: id,
+          input: [{ type: "text", text: "retry please" }],
+        }),
+      ).resolves.toEqual({ ok: true, value: { turnId: id } });
+
+      test.feed.push(event(0, "turn/start", { turn: 1 }));
+      test.feed.push(event(1, "step/start", { turn: 1, step: 1 }));
+      test.feed.push(userMessage(2, "retry please", "request-1"));
+      expect(await nextEvent(outputs)).toEqual({ type: "turn.started", turnId: id });
+
+      // A fractional retry delay plus a provider-supplied fractional retry-after
+      // are both legal at the native boundary and must not fault a live session.
+      test.feed.push(
+        event(3, "llm/retry", {
+          retryId: "retry-1",
+          turn: 1,
+          step: 1,
+          provider: "deepseek",
+          mode: "always",
+          policyKey: "default",
+          retry: 1,
+          delayMs: 1234.56,
+          failure: { message: "transient", code: "RETRY", providerRetryAfterMs: 1.5 },
+        }),
+      );
+      test.feed.push(
+        event(4, "llm/retry-started", { retryId: "retry-1", turn: 1, step: 1, retry: 1 }),
+      );
+      // V015 durable assistant/message carries an (empty) stream; V012 forbids it.
+      const message = {
+        id: "assistant-5",
+        role: "assistant",
+        content: [{ type: "text", text: "recovered" }],
+        source: { kind: "model", provider: "deepseek", model: "deepseek-v4" },
+      };
+      test.feed.push(
+        event(
+          5,
+          "assistant/message",
+          {
+            turn: 1,
+            step: 1,
+            message,
+            usage: { inputTokens: 2, outputTokens: 1 },
+            ...(profile === DEEPSEEK_V015_PROFILE ? { stream: [] } : {}),
+          },
+          true,
+        ),
+      );
+      test.feed.push(event(6, "step/end", { turn: 1, step: 1 }));
+      test.feed.push(event(7, "turn/end", { turn: 1, reason: { kind: "completed" } }));
+
+      const emitted = await eventsThrough(outputs, "turn.completed");
+      expect(emitted.some((item) => item.type === "session.faulted")).toBe(false);
+      expect(emitted.at(-1)).toMatchObject({
+        type: "turn.completed",
+        turnId: id,
+        outcome: { status: "succeeded" },
+      });
+
+      // Replay the real durable events (feed.seen records every pushed durable
+      // event) to prove the fractions survive a fresh history validation.
+      const durable = test.feed.seen;
+      expect(durable).toHaveLength(8);
+      expect(durable.some((entry) => entry.type === "llm/retry")).toBe(true);
+      const validator = new ModernEventValidator(undefined, profile);
+      expect(() => {
+        for (const journalEvent of durable) validator.accept(journalEvent);
+      }).not.toThrow();
+
+      const snapshot = await test.session.readSnapshot();
+      expect(snapshot.ok).toBe(true);
+      if (snapshot.ok)
+        expect(
+          snapshot.value.turns
+            .flatMap((turn) => turn.items)
+            .some((entry) => entry.item.type === "agentMessage" && entry.item.text === "recovered"),
+        ).toBe(true);
+      await test.session.close();
+    },
+  );
 
   it("publishes only final reasoning across revised, delta-free, and repeated Turns", async () => {
     const test = setup(

@@ -51,12 +51,14 @@ import {
   type DeepSeekModernProfile,
 } from "../profiles/profile.js";
 import {
+  boundedDelayMs,
   boundedInteger,
   enumValue,
   exactKeys,
   fail,
   nonNegativeInteger,
   nonNegativeSafeInteger,
+  positiveFiniteNumber,
   positiveInteger,
   requiredOptionalKeys,
   requiredString,
@@ -1130,7 +1132,7 @@ function validateTurnReason(value: unknown): void {
         nonNegativeInteger(value.error.status, "Turn error status");
       }
       if (value.error.providerRetryAfterMs !== undefined) {
-        nonNegativeInteger(value.error.providerRetryAfterMs, "Turn error providerRetryAfterMs");
+        positiveFiniteNumber(value.error.providerRetryAfterMs, "Turn error providerRetryAfterMs");
       }
       if (value.error.requestId !== undefined) {
         requiredString(value.error.requestId, "Turn error requestId");
@@ -1331,7 +1333,7 @@ function validateRetry(data: Record<string, unknown>): void {
   requiredString(data.provider, "llm/retry provider");
   requiredString(data.policyKey, "llm/retry policyKey");
   positiveInteger(data.retry, "llm/retry retry");
-  nonNegativeInteger(data.delayMs, "llm/retry delayMs");
+  boundedDelayMs(data.delayMs, "llm/retry delayMs");
   if (mode === "normal") positiveInteger(data.maxRetries, "llm/retry maxRetries");
   validateLlmFailure(data.failure, "llm/retry failure");
 }

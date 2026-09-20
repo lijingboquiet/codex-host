@@ -102,7 +102,7 @@ export function validateLlmFailure(value: unknown, label: string): void {
   }
   if (value.status !== undefined) nonNegativeInteger(value.status, `${label} status`);
   if (value.providerRetryAfterMs !== undefined) {
-    nonNegativeInteger(value.providerRetryAfterMs, `${label} providerRetryAfterMs`);
+    positiveFiniteNumber(value.providerRetryAfterMs, `${label} providerRetryAfterMs`);
   }
   if (value.requestId !== undefined) requiredString(value.requestId, `${label} requestId`);
 }
@@ -151,6 +151,33 @@ export function nonNegativeInteger(value: unknown, label: string): number {
 
 export function nonNegativeSafeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+// Native retry scheduler treats delays as milliseconds and permits fractional
+// values; the ceiling matches @deepseek-ai/dsh-timeout MAX_TIMER_DELAY_MS.
+export const MAX_TIMER_DELAY_MS = 2_147_483_647;
+
+// llm/retry delayMs: any finite number within 0..MAX_TIMER_DELAY_MS, fractions
+// allowed (aligns with @deepseek-ai/dsh-llm-retry invariant).
+export function boundedDelayMs(value: unknown, label: string): number {
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    value < 0 ||
+    value > MAX_TIMER_DELAY_MS
+  ) {
+    fail(`${label} must be a finite number within 0..${MAX_TIMER_DELAY_MS}`);
+  }
+  return value;
+}
+
+// LlmFailure providerRetryAfterMs: positive finite number, fractions allowed,
+// zero rejected (aligns with @deepseek-ai/dsh-llm-retry invariant).
+export function positiveFiniteNumber(value: unknown, label: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    fail(`${label} must be a positive finite number`);
+  }
+  return value;
 }
 
 export function boundedInteger(value: unknown, label: string, minimum: number): number {

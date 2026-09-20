@@ -39,6 +39,7 @@
 | --- | --- |
 | [`harnesses/claude-code/claude-code-plan-mode.md`](harnesses/claude-code/claude-code-plan-mode.md) | Claude Code 规划模式、计划退出确认与权限状态边界；修改 Plan Mode 时阅读。 |
 | [`harnesses/claude-code/claude-code-edit-recovery.md`](harnesses/claude-code/claude-code-edit-recovery.md) | 最后一条消息编辑后的独立 Session、空历史保留和关闭语义；修改编辑恢复时阅读。 |
+| [`harnesses/claude-code/claude-code-model-display.md`](harnesses/claude-code/claude-code-model-display.md) | Default 背后真实模型的展示：从原生消息流透传 resolvedModelLabel、模型切换版本保护、子代理不覆盖、picker 二级标签与个人默认边界；修改模型显示/选择时阅读。 |
 
 ### CodeBuddy 与 Cursor
 

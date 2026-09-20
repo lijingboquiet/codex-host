@@ -14,6 +14,7 @@ import {
 import {
   isRendererModelPickerDisabled,
   rendererModelPickerPresentation,
+  rendererModelSecondaryLabel,
   rendererModelServiceStatusLabel,
   shouldCloseRendererModelPicker,
   syncRendererLabelText,
@@ -324,5 +325,65 @@ describe("Renderer combined Model and Thinking picker presentation", () => {
       showThinkingSection: false,
       thinkingSelectionEnabled: false,
     });
+  });
+});
+
+describe("Renderer picker secondary label composition", () => {
+  it("shows both the runtime-resolved Model and the Thinking option", () => {
+    expect(
+      rendererModelSecondaryLabel({
+        modelLabel: "Default",
+        resolvedModelLabel: "model_hub/es1_orange_o48",
+        thinkingLabel: "Extra High",
+        thinkingOptions: [],
+        showThinkingSection: true,
+        thinkingSelectionEnabled: true,
+      }),
+    ).toBe("model_hub/es1_orange_o48 · Extra High");
+  });
+
+  it("does not let the Thinking option hide the resolved Model", () => {
+    expect(
+      rendererModelSecondaryLabel({
+        modelLabel: "Default",
+        resolvedModelLabel: "model_hub/es1_orange_o48",
+        thinkingLabel: "Auto",
+        thinkingOptions: [],
+        showThinkingSection: true,
+        thinkingSelectionEnabled: true,
+      }),
+    ).toBe("model_hub/es1_orange_o48 · Auto");
+  });
+
+  it("falls back to a single fact when only one is present", () => {
+    expect(
+      rendererModelSecondaryLabel({
+        modelLabel: "Default",
+        resolvedModelLabel: "model_hub/es1_orange_o48",
+        thinkingOptions: [],
+        showThinkingSection: false,
+        thinkingSelectionEnabled: false,
+      }),
+    ).toBe("model_hub/es1_orange_o48");
+    expect(
+      rendererModelSecondaryLabel({
+        modelLabel: "provider / model",
+        thinkingLabel: "High",
+        thinkingOptions: [],
+        showThinkingSection: true,
+        thinkingSelectionEnabled: true,
+      }),
+    ).toBe("High");
+  });
+
+  it("returns undefined when neither fact is available", () => {
+    expect(
+      rendererModelSecondaryLabel({
+        modelLabel: "provider / model",
+        thinkingOptions: [],
+        showThinkingSection: false,
+        thinkingSelectionEnabled: false,
+      }),
+    ).toBeUndefined();
   });
 });
