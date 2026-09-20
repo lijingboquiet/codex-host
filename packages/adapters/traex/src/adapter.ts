@@ -79,7 +79,7 @@ function rejected<T>(code: HarnessError["code"], message: string): HarnessResult
 function permissionMode(input: Extract<OpenSessionInput, { kind: "create" | "resume" }>): string {
   const selected =
     input.kind === "create" && input.executionPolicy === "unattended-full-access"
-      ? "bypass_permissions"
+      ? "auto"
       : (input.permissionModeId ?? TRAEX_PERMISSION_MODES.defaultModeId);
   if (!TRAEX_PERMISSION_MODES.modes.some(({ id }) => id === selected))
     throw new Error("Unknown TraeX Permission Mode");

@@ -1,14 +1,54 @@
 import type { PromptResponse, SessionConfigOption } from "@agentclientprotocol/sdk";
-import { harnessThinkingOptionIdSchema, hostTurnIdSchema } from "@codexhost/shared-contracts";
+import {
+  harnessPermissionModeIdSchema,
+  harnessThinkingOptionIdSchema,
+  hostTurnIdSchema,
+} from "@codexhost/shared-contracts";
 import { describe, expect, it, vi } from "vitest";
-import { TraexSession } from "../src/adapter.js";
+import { TraexAdapter, TraexSession } from "../src/adapter.js";
 import type { TraexTransport } from "../src/acp-transport.js";
 
 const native = vi.hoisted(() => ({ completed: false }));
 
+const transportStub = vi.hoisted(() => ({
+  modes: [] as string[],
+  configOptions: () => [
+    {
+      id: "model",
+      name: "Model",
+      type: "select",
+      currentValue: "DeepSeek-V4-Flash",
+      options: [{ value: "DeepSeek-V4-Flash", name: "DeepSeek V4 Flash" }],
+    },
+    {
+      id: "reasoning_effort",
+      name: "Reasoning",
+      type: "select",
+      currentValue: "low",
+      options: [{ value: "low", name: "Low" }],
+    },
+  ],
+}));
+
 vi.mock("../src/history.js", () => ({
   readTraexNativeTurns: () =>
     native.completed ? [{ id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", text: "wait" }] : [],
+}));
+
+vi.mock("../src/acp-transport.js", () => ({
+  TraexTransport: class {
+    sessionId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+    replay = [];
+    options: { permissionModeId: string };
+    constructor(options: { permissionModeId: string }) {
+      this.options = options;
+      transportStub.modes.push(options.permissionModeId);
+    }
+    async open() {
+      return { sessionId: this.sessionId, configOptions: transportStub.configOptions() };
+    }
+    async close() {}
+  },
 }));
 
 function configOptions(thinking = "low"): SessionConfigOption[] {
@@ -154,5 +194,42 @@ describe("TraeX Adapter lifecycle", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("TraeX Adapter create Permission Mode mapping", () => {
+  async function openMode(input: Parameters<TraexAdapter["open"]>[0]): Promise<string> {
+    native.completed = false;
+    transportStub.modes.length = 0;
+    const adapter = new TraexAdapter();
+    const result = await adapter.open(input);
+    expect(result.ok).toBe(true);
+    await adapter.close();
+    expect(transportStub.modes).toHaveLength(1);
+    return transportStub.modes[0] ?? "";
+  }
+
+  it("maps unattended-full-access create to auto", async () => {
+    expect(
+      await openMode({
+        kind: "create",
+        cwd: process.cwd(),
+        executionPolicy: "unattended-full-access",
+      }),
+    ).toBe("auto");
+  });
+
+  it("defaults plain create to default", async () => {
+    expect(await openMode({ kind: "create", cwd: process.cwd() })).toBe("default");
+  });
+
+  it("honors an explicit Full Access create", async () => {
+    expect(
+      await openMode({
+        kind: "create",
+        cwd: process.cwd(),
+        permissionModeId: harnessPermissionModeIdSchema.parse("bypass_permissions"),
+      }),
+    ).toBe("bypass_permissions");
   });
 });
